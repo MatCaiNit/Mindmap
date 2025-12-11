@@ -1,3 +1,4 @@
+// Backend/controllers/node.controller.js
 import Node from '../models/Node.js';
 import AuditLog from '../models/AuditLog.js';
 import { checkMindmapAccess } from '../services/access.service.js';

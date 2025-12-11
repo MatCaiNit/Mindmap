@@ -1,3 +1,4 @@
+// Backend/models/AuditLog.js
 import mongoose from 'mongoose';
 
 const AuditLogSchema = new mongoose.Schema({

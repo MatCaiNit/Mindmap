@@ -1,3 +1,4 @@
+// Backend/middlewares/rbac.middleware.js
 import { checkMindmapAccess } from '../services/access.service.js';
 
 export function requireMindmapAccess(action = 'read') {

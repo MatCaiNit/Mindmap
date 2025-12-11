@@ -1,3 +1,4 @@
+// Backend/validators/mindmap.validator.js
 import Joi from 'joi';
 
 export const createMindmapSchema = Joi.object({

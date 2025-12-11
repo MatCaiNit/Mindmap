@@ -1,3 +1,4 @@
+// Backend/controllers/collab.controller.js
 import Mindmap from '../models/Mindmap.js';
 import User from '../models/User.js';
 

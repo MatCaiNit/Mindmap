@@ -1,3 +1,4 @@
+// Backend/models/Mindmap.js
 import mongoose from 'mongoose';
 
 const CollaboratorSchema = new mongoose.Schema({

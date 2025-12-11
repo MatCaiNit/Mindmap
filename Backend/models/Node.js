@@ -1,3 +1,4 @@
+// Backend/models/Node.js
 import mongoose from 'mongoose';
 
 const NodeSchema = new mongoose.Schema({

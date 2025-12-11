@@ -1,3 +1,4 @@
+// Backend/validators/node.validator.js
 import Joi from 'joi';
 
 export const createNodeSchema = Joi.object({

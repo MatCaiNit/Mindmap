@@ -1,11 +1,20 @@
+// Backend/services/token.service.js
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import RefreshToken from '../models/RefreshToken.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
-export function createAccessToken(userId) {
-  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' });
+export function createAccessToken(user) {
+  return jwt.sign(
+    {
+      id: user._id.toString(),
+      email: user.email,
+      name: user.name,
+    },
+    JWT_SECRET,
+    { expiresIn: '15m' }
+  );
 }
 
 export async function createRefreshToken(userId) {

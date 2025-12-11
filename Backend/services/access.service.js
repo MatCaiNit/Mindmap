@@ -1,3 +1,4 @@
+// Backend/services/access.service.js
 import Mindmap from '../models/Mindmap.js';
 
 export async function checkMindmapAccess(userId, mindmapId, action = 'read') {

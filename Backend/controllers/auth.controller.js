@@ -1,3 +1,4 @@
+// Backend/controllers/auth.controller.js
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import RefreshTokenModel from '../models/RefreshToken.js';
@@ -11,7 +12,7 @@ export async function register(req, res) {
     if (exist) return res.status(400).json({ message: 'Email exists' });
     const hashed = await bcrypt.hash(password, 10);
     const user = await User.create({ email, password: hashed, name });
-    const access = createAccessToken(user._id.toString());
+    const access = createAccessToken(user);
     const refresh = await createRefreshToken(user._id.toString());
     res.json({ ok: true, accessToken: access, refreshToken: refresh, user: { id: user._id, email: user.email, name: user.name } });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -30,7 +31,7 @@ export async function login(req, res) {
     const ok = await bcrypt.compare(password, user.password || '');
     if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
 
-    const access = createAccessToken(user._id.toString());
+    const access = createAccessToken(user);
     const refresh = await createRefreshToken(user._id.toString());
     res.json({ ok: true, accessToken: access, refreshToken: refresh, user: { id: user._id, email: user.email, name: user.name } });
   } catch (err) {
@@ -45,7 +46,8 @@ export async function refresh(req, res) {
     const newToken = await rotateRefreshToken(refreshToken);
     if (!newToken) return res.status(400).json({ message: 'Invalid refresh token' });
     const rec = await RefreshTokenModel.findOne({ token: newToken });
-    const access = createAccessToken(rec.userId.toString());
+    const user = await User.findById(rec.userId);
+    const access = createAccessToken(user);
     res.json({ ok: true, accessToken: access, refreshToken: newToken });
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
