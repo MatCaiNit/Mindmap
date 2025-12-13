@@ -3,7 +3,7 @@ import http from 'http';
 import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import axios from 'axios';
-
+import { createAwareness } from './utils/awareness.js';
 import { CONFIG } from './config.js';
 import { verifyToken } from './utils/jwt.js';
 import { loadSnapshot, saveSnapshot } from './utils/persist.js';
@@ -35,13 +35,17 @@ async function getYDoc(docName) {
     if (snapshot) {
       Y.applyUpdate(ydoc, snapshot);
     }
+    if (!snapshot) {
+      console.log(`[Persist] ℹ️  No snapshot found for ${docName}`);
+    }
+    const awareness = createAwareness(ydoc);
 
     // Lắng nghe thay đổi để auto-save
     ydoc.on('update', () => {
       debouncedSave(docName, ydoc);
     });
 
-    docs.set(docName, ydoc);
+    docs.set(docName, {ydoc, awareness});
     console.log(`[YDoc] Created new document: ${docName}`);
   }
   return docs.get(docName);
@@ -49,6 +53,13 @@ async function getYDoc(docName) {
 
 // Debounced save với throttle
 function debouncedSave(docName, ydoc) {
+  const MAX_DOC_SIZE = 5 * 1024 * 1024; // 5MB
+  const currentSize = Y.encodeStateAsUpdate(ydoc).length;
+
+  if (currentSize > MAX_DOC_SIZE) {
+    console.warn(`[Security] Doc too large: ${docName} (${currentSize} bytes)`);
+    return;
+  }
   const timer = saveTimers.get(docName);
   
   if (timer) {
@@ -77,22 +88,23 @@ function debouncedSave(docName, ydoc) {
 
 // Cleanup document khi không còn connection
 function cleanupDoc(docName) {
-  const ydoc = docs.get(docName);
-  if (ydoc) {
-    // Force save trước khi cleanup
-    saveSnapshot(docName, ydoc);
-    
-    // Clear timer
-    const timer = saveTimers.get(docName);
-    if (timer?.timeoutId) clearTimeout(timer.timeoutId);
-    saveTimers.delete(docName);
-    
-    // Remove document
-    ydoc.destroy();
-    docs.delete(docName);
-    console.log(`[YDoc] Cleaned up document: ${docName}`);
-  }
+  const entry = docs.get(docName);
+  if (!entry) return;
+
+  const { ydoc } = entry;
+
+  saveSnapshot(docName, ydoc);
+
+  const timer = saveTimers.get(docName);
+  if (timer?.timeoutId) clearTimeout(timer.timeoutId);
+  saveTimers.delete(docName);
+
+  ydoc.destroy();
+  docs.delete(docName);
+
+  console.log(`[YDoc] Cleaned up document: ${docName}`);
 }
+
 
 // Track số connections cho mỗi document
 const connectionCounts = new Map();
@@ -140,32 +152,24 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const doc = docs.get(ydocId);
+      const entry = docs.get(ydocId);
 
-      if (doc) {
-        // Hot restore: Room đang active
+      if (entry) {
+        const { ydoc } = entry;
         const binary = Uint8Array.from(Buffer.from(snapshot, 'base64'));
-        
-        doc.transact(() => {
-          // Clear toàn bộ document trước
-          const rootTypes = Object.keys(doc.share);
-          rootTypes.forEach(key => {
-            const type = doc.get(key);
-            if (type instanceof Y.Map) {
-              type.clear();
-            } else if (type instanceof Y.Array) {
-              type.delete(0, type.length);
-            } else if (type instanceof Y.Text) {
-              type.delete(0, type.length);
-            } else if (type instanceof Y.XmlFragment) {
-              type.delete(0, type.length);
-            }
+
+        ydoc.transact(() => {
+          Object.keys(ydoc.share).forEach(key => {
+            const type = ydoc.get(key);
+            if (type instanceof Y.Map) type.clear();
+            else if (type instanceof Y.Array) type.delete(0, type.length);
+            else if (type instanceof Y.Text) type.delete(0, type.length);
+            else if (type instanceof Y.XmlFragment) type.delete(0, type.length);
           });
-          
-          // Apply snapshot mới
-          Y.applyUpdate(doc, binary);
+
+          Y.applyUpdate(ydoc, binary);
         });
-        
+
         console.log(`[Restore] ✅ Hot restored active room: ${ydocId}`);
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true, status: 'hot_restored' }));
@@ -216,14 +220,17 @@ server.on('upgrade', async (request, socket, head) => {
   }
 
   // Verify quyền truy cập mindmap
+  let role = 'viewer';
   try {
+    console.log(`${CONFIG.BACKEND_URL}/api/internal/mindmaps/${docName}/verify-access`);
     const response = await axios.post(
-      `${CONFIG.BACKEND_URL}/api/mindmaps/internal/${docName}/verify-access`,
-      {action: 'write'},
+      `${CONFIG.BACKEND_URL}/api/internal/mindmaps/${docName}/verify-access`,
+      { action: 'write' } ,
       {
         headers: {
           'x-service-token': CONFIG.SERVICE_TOKEN,
-          'x-user-id': user.id
+          'x-user-id': user.id || user._id || user.sub,
+          'Authorization': `Bearer ${token}` 
         },
         timeout: 3000
       }
@@ -235,7 +242,7 @@ server.on('upgrade', async (request, socket, head) => {
       socket.destroy();
       return;
     }
-
+    role = response.data.role;
     console.log(`[Access] ✅ User ${user.email} granted ${response.data.role} access to ${docName}`);
   } catch (err) {
     console.error(`[Access Check Failed] ${docName}:`, err.message);
@@ -249,6 +256,8 @@ server.on('upgrade', async (request, socket, head) => {
   wss.handleUpgrade(request, socket, head, (ws) => {
     ws.user = user;
     ws.docName = docName;
+    ws.role = role;
+    ws.clientId = Math.floor(Math.random() * 1e9); // ADD
     wss.emit('connection', ws, request);
   });
 });
@@ -264,7 +273,8 @@ wss.on('connection', async (ws, req) => {
   connectionCounts.set(docName, (connectionCounts.get(docName) || 0) + 1);
 
   // Lấy hoặc tạo Yjs document
-  const ydoc = await getYDoc(docName);
+  const {ydoc, awareness} = await getYDoc(docName);
+  let lastAwarenessTime = 0;
 
   // Gửi full sync khi client kết nối
   const syncMessage = Y.encodeStateAsUpdate(ydoc);
@@ -297,6 +307,11 @@ wss.on('connection', async (ws, req) => {
       } else if (messageType === 2) {
         // Awareness update (cursor position, user presence, etc.)
         // Broadcast awareness tới tất cả clients trong room
+        if (ws.role === 'viewer') return;
+        const now = Date.now();
+        if (now - lastAwarenessTime < 50) return; // rate limit 20fps
+        lastAwarenessTime = now;
+        awareness.applyUpdate(message.slice(1), ws.clientId);
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1 && client.docName === docName) {
             client.send(data);
@@ -311,7 +326,7 @@ wss.on('connection', async (ws, req) => {
   // Xử lý disconnect
   ws.on('close', () => {
     console.log(`[Disconn] User: ${user?.email} <- Room: ${docName}`);
-    
+    awareness.removeStates([ws.clientId], null);
     // Giảm connection count
     const count = (connectionCounts.get(docName) || 1) - 1;
     
@@ -354,7 +369,7 @@ process.on('SIGINT', async () => {
   console.log('\n[Shutdown] Saving all documents...');
   
   // Save all active documents
-  const savePromises = Array.from(docs.entries()).map(([docName, ydoc]) => 
+  const savePromises = Array.from(docs.entries()).map(([docName, {ydoc}]) => 
     saveSnapshot(docName, ydoc)
   );
   

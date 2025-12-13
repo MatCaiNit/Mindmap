@@ -58,7 +58,16 @@ export async function deleteMindmap(req, res) {
     const mm = await Mindmap.findById(id);
     if (!mm) return res.status(404).json({ message: 'Not found' });
     if (mm.ownerId.toString() !== req.user.id) return res.status(403).json({ message: 'Only owner can delete mindmap' });
-    if (mm.snapshot) await Version.create({ mindmapId: mm._id, snapshot: mm.snapshot });
+    if (mm.snapshot) {
+      await Version.create({
+        mindmapId: mm._id,
+        snapshot: mm.snapshot,
+        userId: req.user.id,
+        type: 'delete-backup',
+        label: 'Backup before delete',
+        size: mm.snapshot.length
+      });
+    }
     await AuditLog.create({ mindmapId: mm._id, userId: req.user.id, action: 'delete-mindmap', detail: { title: mm.title } });
     await mm.deleteOne();
     res.json({ ok: true, message: 'Deleted' });
@@ -77,7 +86,14 @@ export async function saveUserSnapshot(req, res) {
     const buf = Buffer.from(snapshot, 'base64');
     mm.snapshot = buf;
     await mm.save();
-    await Version.create({ mindmapId: mm._id, snapshot: buf });
+    await Version.create({
+      mindmapId: mm._id,
+      snapshot: buf,
+      userId: req.user.id,
+      type: 'manual',
+      label: 'User saved snapshot',
+      size: buf.length
+    });
     await AuditLog.create({ mindmapId: mm._id, userId: req.user.id, action: 'save-snapshot', detail: { size: buf.length } });
     res.json({ ok: true, message: 'Snapshot saved' });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -96,9 +112,10 @@ export async function saveRealtimeSnapshot(req, res) {
     const mindmap = await Mindmap.findOne({ ydocId: id });
     if (!mindmap) return res.status(404).json({ message: "Mindmap not found" });
 
-    mindmap.snapshot = buf;
-    await mindmap.save();
-
+    if (!mindmap.snapshot || !mindmap.snapshot.equals(buf)) {
+      mindmap.snapshot = buf;
+      await mindmap.save();
+    }
     // Tuỳ chọn: Có thể không lưu Version ở đây để tránh spam DB (vì auto save chạy liên tục)
     // Hoặc lưu Version nhưng có debounce logic
     
@@ -116,12 +133,16 @@ export async function getRealtimeSnapshot(req, res) {
 
     // Tìm bằng ydocId
     const mm = await Mindmap.findOne({ ydocId: id }).select('snapshot');
-    
-    if (!mm) return res.status(404).json({ message: 'Not found' });
 
-    const snapshotBase64 = mm.snapshot ? mm.snapshot.toString('base64') : null;
+    if (!mm) return res.status(404).json({ message: 'Mindmap not found' });
+    if (!mm.snapshot) {
+      return res.json({ snapshot: null, empty: true });
+    }
 
-    return res.json({ snapshot: snapshotBase64 });
+    return res.json({
+      snapshot: mm.snapshot.toString('base64'),
+      empty: false
+    });
   } catch (err) {
     console.error("getRealtimeSnapshot error:", err);
     return res.status(500).json({ message: err.message });
@@ -139,17 +160,30 @@ export async function restoreSnapshot(req, res) {
     const role = await checkMindmapAccess(req.user.id, id, 'write');
     if (!role) return res.status(403).json({ message: 'Permission denied' });
     // ------------------------------------
-
     const version = await Version.findById(versionId);
     if (!version) return res.status(404).json({ message: "Version not found" });
+    if (version.mindmapId.toString() !== id) {
+      return res.status(400).json({ message: 'Version does not belong to this mindmap' });
+    }
+
 
     const mindmap = await Mindmap.findById(id);
     if (!mindmap) return res.status(404).json({ message: "Mindmap not found" });
 
+    if (
+      mindmap.snapshot &&
+      Buffer.compare(mindmap.snapshot, version.snapshot) === 0
+    ) {
+      return res.status(400).json({
+        message: 'Snapshot is already the current version'
+      });
+    }
     const ydocId = mindmap.ydocId;
-    const realtimeUrl = (process.env.REALTIME_NOTIFY_URL || "").replace("/_notify", "");
-    
-    if (!realtimeUrl) return res.status(500).json({ message: "REALTIME_URL not configured" });
+    const realtimeUrl = process.env.REALTIME_URL;
+    if (!realtimeUrl) {
+      return res.status(500).json({ message: "REALTIME_URL not configured" });
+    }
+
 
     // Gọi sang Realtime Server để force update
     // Realtime server cần có route POST /apply-snapshot
@@ -168,15 +202,36 @@ export async function restoreSnapshot(req, res) {
       }
     );
     
-    // Lưu log
-    await AuditLog.create({
-        mindmapId: mindmap._id,
-        userId: req.user.id,
-        action: 'restore-version',
-        detail: { versionId }
+    // Update snapshot hiện tại
+    mindmap.snapshot = version.snapshot;
+    await mindmap.save();
+
+    // Create new version record (restore)
+    const restoredVersion = await Version.create({
+      mindmapId: mindmap._id,
+      snapshot: version.snapshot,
+      userId: req.user.id,
+      type: 'restore',
+      label: `Restored from version ${version._id}`,
+      size: version.snapshot.length
     });
 
-    return res.json({ ok: true, message: "Restore request sent to realtime server" });
+    // Lưu log
+    await AuditLog.create({
+      mindmapId: mindmap._id,
+      userId: req.user.id,
+      action: 'restore-version',
+      detail: {
+        fromVersionId: version._id,
+        newVersionId: restoredVersion._id
+      }
+    });
+
+    return res.json({
+      ok: true,
+      message: 'Snapshot restored successfully',
+      restoredVersionId: restoredVersion._id
+    });
   } catch (err) {
     console.error("restoreSnapshot error:", err);
     return res.status(500).json({ message: err.message });
@@ -199,5 +254,34 @@ export async function verifyMindmapAccess(req, res) {
   } catch (err) {
     console.error('verifyMindmapAccess error:', err);
     res.status(500).json({ hasAccess: false });
+  }
+}
+
+export async function getVersion(req, res) {
+  try {
+    const { id, versionId } = req.params;
+
+    const role = await checkMindmapAccess(req.user.id, id, 'read');
+    if (!role) return res.status(403).json({ message: 'Permission denied' });
+
+    const version = await Version.findOne({
+      _id: versionId,
+      mindmapId: id
+    });
+
+    if (!version) return res.status(404).json({ message: 'Version not found' });
+
+    res.json({
+      ok: true,
+      version: {
+        _id: version._id,
+        createdAt: version.createdAt,
+        type: version.type,
+        label: version.label,
+        snapshot: version.snapshot.toString('base64')
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 }

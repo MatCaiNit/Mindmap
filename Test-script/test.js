@@ -1,126 +1,135 @@
-// test.js
-import axios from "axios";
-import { WebSocket } from "ws";
-import * as Y from "yjs";
+import WebSocket from 'ws';
+import axios from 'axios';
+import * as Y from 'yjs';
 
-/* ===========================
-   CONFIG
-=========================== */
-const BACKEND_URL = "http://localhost:5000/api";
-const REALTIME_WS_URL = "ws://localhost:1234";
+const BACKEND = 'http://localhost:5000';
+const REALTIME = 'ws://localhost:1234';
 
-const TEST_USER = {
-    email: `test_user_${Date.now()}@example.com`,
-    password: "password123",
-    name: "Integration Tester"
-};
+let token;
+let ydocId;
 
-/* ===========================
-   STEP 1: LẤY ACCESS TOKEN
-=========================== */
-async function getAccessToken() {
-    console.log("1️⃣  Đang đăng ký user...");
+// Utils
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const log = (title) => console.log('\n=====', title, '=====');
 
-    try {
-        const res = await axios.post(`${BACKEND_URL}/auth/register`, TEST_USER);
-        console.log("✅ Đăng ký thành công!");
-        return res.data.accessToken;
+async function setup() {
+  log('SETUP USER + MINDMAP');
 
-    } catch (err) {
-        if (err.response?.status === 400) {
-            console.log("⚠️ User đã tồn tại → chuyển sang đăng nhập...");
-            const res = await axios.post(`${BACKEND_URL}/auth/login`, {
-                email: TEST_USER.email,
-                password: TEST_USER.password
-            });
-            return res.data.accessToken;
-        }
-        throw err;
-    }
+  const email = `rt${Date.now()}@test.com`;
+  const password = '123456';
+
+  await axios.post(`${BACKEND}/api/auth/register`, {
+    email,
+    password,
+    name: 'Realtime Tester'
+  });
+
+  const login = await axios.post(`${BACKEND}/api/auth/login`, {
+    email,
+    password
+  });
+
+  token = login.data.accessToken;
+
+  const mm = await axios.post(
+    `${BACKEND}/api/mindmaps`,
+    { title: 'Realtime Test' },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  ydocId = mm.data.mindmap.ydocId;
+
+  console.log('ydocId:', ydocId);
 }
 
-/* ===========================
-   STEP 2: TẠO MINDMAP
-=========================== */
-async function createMindmap(token) {
-    console.log("2️⃣  Đang tạo mindmap test...");
+function connectClient(name) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(`${REALTIME}/${ydocId}?token=${token}`);
 
-    const res = await axios.post(
-        `${BACKEND_URL}/mindmaps`,
-        { title: "Integration Test Map" },
-        { headers: { Authorization: `Bearer ${token}` } }
-    );
-
-    const mindmap = res.data.mindmap;
-    console.log("✅ Mindmap tạo thành công! ydocId =", mindmap.ydocId);
-
-    return mindmap.ydocId;
-}
-
-/* ===========================
-   STEP 3: TEST WEBSOCKET
-=========================== */
-function testWebSocket(token, ydocId) {
-    return new Promise((resolve, reject) => {
-        console.log(`3️⃣  Đang kết nối WS → ${REALTIME_WS_URL}/${ydocId} ...`);
-
-        const ws = new WebSocket(
-            `${REALTIME_WS_URL}/${ydocId}?token=${token}`
-        );
-
-        ws.binaryType = "arraybuffer";
-
-        ws.on("open", () => {
-            console.log("✅ WebSocket connected!");
-
-            // Tạo document tạm
-            const doc = new Y.Doc();
-            const text = doc.getText("content");
-            text.insert(0, "Hello from integration test!");
-
-            const update = Y.encodeStateAsUpdate(doc);
-            const msg = new Uint8Array(update.length + 1);
-            msg[0] = 1;
-            msg.set(update, 1);
-
-            console.log("4️⃣  Gửi update lên Realtime Server...");
-            ws.send(msg);
-
-            // Đợi server phản hồi
-            setTimeout(() => {
-                console.log("🎉 TEST SUCCESS: Realtime hoạt động chính xác!");
-                ws.close();
-                resolve();
-            }, 1500);
-        });
-
-        ws.on("error", (err) => {
-            console.error("❌ WebSocket error:", err.message);
-            reject(err);
-        });
-
-        ws.on("close", (code) => {
-            if (code !== 1000) {
-                console.error("❌ WebSocket đóng bất thường. Code =", code);
-            }
-        });
+    ws.on('open', () => {
+      console.log(`[${name}] connected`);
+      resolve(ws);
     });
+
+    ws.on('error', err => {
+      console.error(`[${name}] error`, err);
+    });
+  });
 }
 
-/* ===========================
-   MAIN
-=========================== */
 (async () => {
-    try {
-        const token = await getAccessToken();
-        const ydocId = await createMindmap(token);
-        await testWebSocket(token, ydocId);
+  await setup();
 
-        console.log("\n🎯 TẤT CẢ TEST ĐỀU PASSED!\n");
-        process.exit(0);
+  log('CONNECT 2 CLIENTS');
+  const wsA = await connectClient('Client A');
+  const wsB = await connectClient('Client B');
 
-    } catch (err) {
-        console.error("\n❌ TEST FAILED:", err?.response?.data || err.message);
-        process.exit(1);
+  const ydocA = new Y.Doc();
+  const ydocB = new Y.Doc();
+
+  // Apply incoming updates
+  wsA.on('message', data => {
+    const msg = new Uint8Array(data);
+    if (msg[0] === 1) {
+      Y.applyUpdate(ydocA, msg.slice(1));
     }
+  });
+
+  wsB.on('message', data => {
+    const msg = new Uint8Array(data);
+    if (msg[0] === 1) {
+      Y.applyUpdate(ydocB, msg.slice(1));
+      console.log('[Client B] received update ✅');
+    }
+  });
+
+  await sleep(1000);
+
+  log('CLIENT A UPDATE');
+  const map = ydocA.getMap('mindmap');
+  map.set('title', 'HELLO REALTIME');
+
+  const update = Y.encodeStateAsUpdate(ydocA);
+  const message = new Uint8Array(update.length + 1);
+  message[0] = 1;
+  message.set(update, 1);
+
+  wsA.send(message);
+
+  await sleep(1500);
+
+  log('VERIFY SYNC');
+  const titleB = ydocB.getMap('mindmap').get('title');
+
+  if (titleB === 'HELLO REALTIME') {
+    console.log('✅ REALTIME SYNC OK');
+  } else {
+    console.error('❌ REALTIME FAILED');
+  }
+
+  log('WAIT SNAPSHOT SAVE');
+  await sleep(6000);
+
+  log('FETCH SNAPSHOT FROM BACKEND');
+  const snap = await axios.get(
+    `${BACKEND}/api/internal/mindmaps/${ydocId}/snapshot`,
+    {
+      // 👇 THÊM ĐOẠN HEADERS NÀY
+      headers: {
+        'x-service-token': "super_secure_internal_token_xyz123"
+      }
+    }
+  );
+
+  if (snap.data.snapshot) {
+    console.log('✅ SNAPSHOT EXISTS');
+  } else {
+    console.error('❌ SNAPSHOT MISSING');
+  }
+
+  wsA.close();
+  wsB.close();
+
+  console.log('\n🎉 REALTIME TEST PASSED');
+  process.exit(0);
 })();

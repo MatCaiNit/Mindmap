@@ -18,6 +18,6 @@ export const CONFIG = {
   PORT: process.env.PORT || 1234,
   JWT_SECRET: process.env.JWT_SECRET || 'dev_secret',
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:5000',
-  SERVICE_TOKEN: process.env.REALTIME_SERVICE_TOKEN || 'super_secure_internal_token_xyz123',
+  SERVICE_TOKEN: process.env.REALTIME_SERVICE_TOKEN || "super_secure_internal_token_xyz123",
   DEBOUNCE_MS: parseInt(process.env.DEBOUNCE_MS || '2000', 10), // 2 giây
 };

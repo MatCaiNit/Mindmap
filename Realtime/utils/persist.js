@@ -20,7 +20,7 @@ const apiClient = axios.create({
  */
 export async function loadSnapshot(docName) {
   try {
-    const url = `/api/mindmaps/internal/${docName}/snapshot`;
+    const url = `/api/internal/mindmaps/${docName}/snapshot`;
     const response = await apiClient.get(url);
     const { snapshot } = response.data;
 
@@ -55,7 +55,7 @@ export async function saveSnapshot(docName, ydoc) {
     const stateUpdate = Y.encodeStateAsUpdate(ydoc);
     const base64Snapshot = Buffer.from(stateUpdate).toString('base64');
 
-    const url = `/api/mindmaps/internal/${docName}/snapshot`;
+    const url = `/api/internal/mindmaps/${docName}/snapshot`;
     await apiClient.post(url, { snapshot: base64Snapshot });
     
     console.log(`[Persist] ✅ Saved snapshot: ${docName} (${stateUpdate.length} bytes)`);
