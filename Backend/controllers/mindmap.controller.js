@@ -250,7 +250,12 @@ export async function verifyMindmapAccess(req, res) {
     if (!mindmap) return res.json({ hasAccess: false });
 
     const role = await checkMindmapAccess(userId, mindmap._id.toString(), 'read');
-    res.json({ hasAccess: !!role, role });
+    res.json({ 
+      hasAccess: !!role, 
+      role,
+      mindmapId: mindmap._id,
+      ownerId: mindmap.ownerId
+    });
   } catch (err) {
     console.error('verifyMindmapAccess error:', err);
     res.status(500).json({ hasAccess: false });

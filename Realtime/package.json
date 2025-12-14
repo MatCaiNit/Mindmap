@@ -2,7 +2,6 @@
   "name": "mindmap-realtime",
   "version": "1.0.0",
   "main": "server.js",
-  "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
@@ -11,9 +10,10 @@
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "jsonwebtoken": "^9.0.2",
+    "lib0": "^0.2.114",
     "ws": "^8.18.0",
+    "y-protocols": "^1.0.6",
     "y-websocket": "^2.0.4",
-    "yjs": "^13.6.20",
-    "y-protocols": "^1.0.6"
+    "yjs": "^13.6.20"
   }
 }
