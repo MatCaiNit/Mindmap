@@ -1,126 +1,99 @@
 const http = require('http')
 const WebSocket = require('ws')
 const Y = require('yjs')
-const { setupWSConnection } = require('y-websocket/bin/utils')
+const mapUtils = require('y-websocket/bin/utils')
+const { setupWSConnection } = mapUtils
+
 const { authenticate } = require('./utils/auth')
 const { persistence } = require('./utils/persist')
 const { CONFIG } = require('./config')
 const syncProtocol = require('y-protocols/sync')
 const awarenessProtocol = require('y-protocols/awareness')
 const encoding = require('lib0/encoding')
-const decoding = require('lib0/decoding')
 
-// CRITICAL: Track all Y.Docs manually
-const docs = new Map()
+// Global Map để bridge giữa API và WebSocket
+if (!global.mindmapDocs) {
+  global.mindmapDocs = new Map()
+}
+const activeDocs = global.mindmapDocs
 
 const server = http.createServer((req, res) => {
-  if (req.method === 'POST' && req.url === '/apply-snapshot') {
-    return handleApplySnapshot(req, res)
-  }
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-service-token')
+  
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+  if (req.method === 'POST' && req.url === '/apply-snapshot') return handleApplySnapshot(req, res)
+  if (req.method === 'GET' && req.url.startsWith('/api/internal/mindmaps/')) return handleGetSnapshot(req, res)
 
-  if (req.method === 'GET' && req.url.startsWith('/api/internal/mindmaps/')) {
-    return handleGetSnapshot(req, res)
-  }
-
-  res.writeHead(404)
-  res.end('Not Found')
+  res.writeHead(404); res.end('Not Found')
 })
 
 const wss = new WebSocket.Server({ noServer: true })
 
-// Get snapshot handler
+// ==========================================
+// 1. API GET SNAPSHOT (FIXED PROPERTY ACCESS)
+// ==========================================
 async function handleGetSnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
-  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
-    console.warn(`[Security] Unauthorized get-snapshot attempt`)
-    res.writeHead(403)
-    res.end(JSON.stringify({ message: 'Forbidden: Invalid Service Token' }))
-    return
-  }
+  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) return sendError(res, 403, 'Forbidden')
 
   try {
-    const parts = req.url.split('/')
-    const ydocId = parts[4]
+    const ydocId = req.url.split('/')[4]
+    if (!ydocId) return sendError(res, 400, 'Missing ydocId')
 
-    if (!ydocId) {
-      res.writeHead(400)
-      res.end(JSON.stringify({ message: 'Missing ydocId' }))
-      return
+    console.log(`\n📦 GET SNAPSHOT: ${ydocId}`)
+    
+    // 1. Tìm trong Global Map
+    let ydoc = activeDocs.get(ydocId)
+    
+    // 2. Fallback: Tìm trong thư viện (FIXED: Không gọi .doc nữa)
+    if (!ydoc && mapUtils.docs.has(ydocId)) {
+       console.log(`   Found in Library Map (Fallback)`)
+       ydoc = mapUtils.docs.get(ydocId) // <--- FIX: Bản thân nó là Doc rồi
+       activeDocs.set(ydocId, ydoc)
     }
 
-    console.log(`📦 Get snapshot request for: ${ydocId}`)
-
-    const room = docs.get(ydocId)
-    
-    if (!room || !room.doc) {
-      console.log(`⚠️  No active Y.Doc found for: ${ydocId}`)
-      
-      const ydoc = new Y.Doc()
+    // 3. Persistence
+    if (!ydoc) {
+      console.log(`⚠️  Doc not found in RAM. keys: ${Array.from(activeDocs.keys())}`)
+      ydoc = new Y.Doc()
       try {
         await persistence.bindState(ydocId, ydoc)
-        
-        const update = Y.encodeStateAsUpdate(ydoc)
-        const encodedState = Buffer.from(update).toString('base64')
-        
-        const snapshot = {
-          schemaVersion: 1,
-          encodedState,
-          meta: {
-            createdBy: 'realtime',
-            reason: 'manual-save',
-            clientCount: 0
-          },
-          createdAt: new Date().toISOString()
-        }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ snapshot }))
-        return
-        
-      } catch (err) {
-        console.error('❌ Failed to load from persistence:', err.message)
-        res.writeHead(404)
-        res.end(JSON.stringify({ message: 'No snapshot found' }))
-        return
-      }
+      } catch (e) {}
+    } else {
+       console.log(`✅ Found active session!`)
     }
 
-    const update = Y.encodeStateAsUpdate(room.doc)
+    const update = Y.encodeStateAsUpdate(ydoc)
     const encodedState = Buffer.from(update).toString('base64')
-    
-    const snapshot = {
-      schemaVersion: 1,
-      encodedState,
-      meta: {
-        createdBy: 'realtime',
-        reason: 'manual-save',
-        clientCount: room.conns ? room.conns.size : 0
-      },
-      createdAt: new Date().toISOString()
-    }
+    const nodeCount = ydoc.getMap('nodes').size
 
-    console.log(`✅ Snapshot created (${encodedState.length} chars, ${room.conns?.size || 0} clients)`)
+    console.log(`✅ Result: ${nodeCount} nodes`)
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ snapshot }))
+    res.end(JSON.stringify({
+      snapshot: {
+        schemaVersion: 1,
+        encodedState,
+        meta: { createdBy: 'realtime', clientCount: 0 },
+        stats: { nodes: nodeCount },
+        createdAt: new Date().toISOString()
+      }
+    }))
 
   } catch (err) {
-    console.error('❌ get-snapshot error:', err)
-    res.writeHead(500)
-    res.end(JSON.stringify({ message: err.message }))
+    console.error(err)
+    sendError(res, 500, err.message)
   }
 }
 
-// Realtime/server.js - apply-snapshot with FULL DEBUG
-
+// ==========================================
+// 2. API RESTORE (CHIẾN THUẬT: ĐẬP ĐI XÂY LẠI)
+// ==========================================
 async function handleApplySnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
-  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
-    console.warn(`[Security] Unauthorized apply-snapshot attempt`)
-    res.writeHead(403)
-    res.end(JSON.stringify({ message: 'Forbidden: Invalid Service Token' }))
-    return
-  }
+  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) return sendError(res, 403, 'Forbidden')
 
   let body = ''
   req.on('data', chunk => { body += chunk.toString() })
@@ -128,230 +101,124 @@ async function handleApplySnapshot(req, res) {
   req.on('end', async () => {
     try {
       const { ydocId, snapshot } = JSON.parse(body)
+      console.log(`\n📦 RESTORE SNAPSHOT: ${ydocId}`)
 
-      console.log('\n========================================');
-      console.log('📦 APPLY SNAPSHOT - START');
-      console.log('========================================');
-      console.log('ydocId:', ydocId);
+      if (!snapshot || !snapshot.encodedState) return sendError(res, 400, 'No data')
 
-      if (!ydocId || !snapshot || !snapshot.encodedState) {
-        console.log('❌ Invalid request');
-        res.writeHead(400)
-        res.end(JSON.stringify({ message: 'Missing ydocId or snapshot' }))
-        return
-      }
-
-      console.log('   Snapshot size:', snapshot.encodedState.length, 'chars');
-      console.log('   Meta:', snapshot.meta);
-
-      // Decode snapshot to log content
-      const newUpdate = Buffer.from(snapshot.encodedState, 'base64')
-      const previewDoc = new Y.Doc()
-      Y.applyUpdate(previewDoc, newUpdate)
-      
-      console.log('   📊 SNAPSHOT CONTENT:');
-      console.log('      Nodes:', previewDoc.getMap('nodes').size);
-      previewDoc.getMap('nodes').forEach((value, key) => {
-        console.log(`         ${key}: ${value.label}`);
-      });
-      console.log('      Edges:', previewDoc.getArray('edges').length);
-
-      let room = docs.get(ydocId)
-      let ydoc
-
-      if (room && room.doc) {
-        ydoc = room.doc
-        console.log(`   Using existing Y.Doc (${room.conns?.size || 0} clients)`);
-        
-        // Log current state before applying
-        console.log('   📊 CURRENT STATE (before apply):');
-        console.log('      Nodes:', ydoc.getMap('nodes').size);
-        ydoc.getMap('nodes').forEach((value, key) => {
-          console.log(`         ${key}: ${value.label}`);
-        });
-        console.log('      Edges:', ydoc.getArray('edges').length);
-        
-      } else {
-        ydoc = new Y.Doc()
-        room = { 
-          doc: ydoc, 
-          conns: new Map(),
-          awareness: new awarenessProtocol.Awareness(ydoc)
-        }
-        docs.set(ydocId, room)
-        console.log(`   Created new Y.Doc`);
-      }
-
-      console.log('   🔄 Applying snapshot...');
-
-      // 🔥 CRITICAL: Clear and apply in single transaction
-      Y.transact(ydoc, () => {
-        // 1. Get all existing keys
-        const existingKeys = Array.from(ydoc.share.keys())
-        console.log(`      Deleting ${existingKeys.length} existing structures:`, existingKeys);
-        
-        // 2. Delete all
-        existingKeys.forEach(key => {
-          ydoc.share.delete(key)
-        })
-        
-        // 3. Apply new state
-        Y.applyUpdate(ydoc, newUpdate, 'restore')
-        console.log(`      New state applied`);
-      })
-
-      // Log final state
-      const nodesCount = ydoc.getMap('nodes').size
-      const edgesCount = ydoc.getArray('edges').length
-      
-      console.log('   📊 FINAL STATE (after apply):');
-      console.log('      Nodes:', nodesCount);
-      ydoc.getMap('nodes').forEach((value, key) => {
-        console.log(`         ${key}: ${value.label}`);
-      });
-      console.log('      Edges:', edgesCount);
-
-      // Persist to backend
+      // 1. Chuẩn bị data từ Snapshot (Chuyển Base64 -> Uint8Array)
+      let binaryData
       try {
-        console.log('   💾 Persisting to backend...');
-        await persistence.writeState(ydocId, ydoc)
-        console.log('   ✅ Persisted');
-      } catch (persistErr) {
-        console.error('   ❌ Persist failed:', persistErr.message);
+        const buffer = Buffer.from(snapshot.encodedState, 'base64')
+        binaryData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      } catch (e) {
+        return sendError(res, 400, 'Invalid Base64')
       }
 
-      // Broadcast to clients
-      if (room && room.conns && room.conns.size > 0) {
-        console.log(`   📡 Broadcasting to ${room.conns.size} clients...`);
+      // 2. 🔥 QUAN TRỌNG: HỦY DIỆT DOC CŨ (Destroy)
+      // Không cố merge vào doc cũ vì nó đang bị lỗi "Unexpected case"
+      if (mapUtils.docs.has(ydocId)) {
+        const oldRoom = mapUtils.docs.get(ydocId)
+        console.log(`   ♻️  Destroying old corrupted doc...`)
         
-        let successCount = 0
-        let failCount = 0
-
-        room.conns.forEach((_, conn) => {
-          if (conn.readyState === WebSocket.OPEN) {
-            try {
-              const encoder = encoding.createEncoder()
-              encoding.writeVarUint(encoder, 0) // messageSync
-              syncProtocol.writeSyncStep2(encoder, ydoc)
-              const syncMessage = encoding.toUint8Array(encoder)
-              
-              conn.send(syncMessage, { binary: true })
-              successCount++
-            } catch (err) {
-              console.error(`      ❌ Failed to send:`, err.message)
-              failCount++
-            }
-          }
-        })
-        
-        console.log(`      ✅ Sent to ${successCount} clients`);
-        if (failCount > 0) {
-          console.log(`      ⚠️  Failed: ${failCount} clients`);
+        // Ngắt kết nối toàn bộ client đang vẽ để tránh conflict
+        if (oldRoom.conns) {
+            oldRoom.conns.forEach(conn => {
+                try { conn.close() } catch(e) {}
+            })
         }
-      } else {
-        console.log(`   ⚠️  No active connections`);
+        
+        // Xóa sổ khỏi bộ nhớ thư viện
+        mapUtils.docs.delete(ydocId)
+      }
+      
+      // Xóa khỏi Global Map của mình
+      activeDocs.delete(ydocId)
+
+      // 3. ✨ TẠO DOC MỚI TINH (Fresh Start)
+      const newDoc = new Y.Doc()
+      const newRoom = newDoc // Trong thư viện này, Room chính là Doc
+      newRoom.conns = new Set()
+      
+      // 4. Nạp dữ liệu Snapshot vào Doc mới
+      try {
+        Y.applyUpdate(newDoc, binaryData)
+        console.log(`   ✅ Snapshot applied to FRESH doc`)
+      } catch (e) {
+        console.error('   ❌ Snapshot Data is corrupted:', e.message)
+        return sendError(res, 400, 'Snapshot data corrupted')
       }
 
-      console.log('========================================');
-      console.log('✅ APPLY SNAPSHOT - COMPLETE');
-      console.log('========================================\n');
+      // 5. Đăng ký lại vào các Map quản lý
+      mapUtils.docs.set(ydocId, newRoom)
+      activeDocs.set(ydocId, newRoom)
+
+      // 6. 🔥 GHI ĐÈ XUỐNG DB (Overwrite Persistence)
+      // Lúc này newDoc là sạch sẽ, nên writeState sẽ không bị lỗi Unexpected case nữa
+      await persistence.writeState(ydocId, newDoc)
+
+      console.log(`   ✅ Restore Complete. Old state wiped.`)
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ 
-        ok: true,
-        stats: {
-          nodes: nodesCount,
-          edges: edgesCount,
-          clients: room.conns?.size || 0
-        }
-      }))
+      res.end(JSON.stringify({ ok: true }))
 
     } catch (err) {
-      console.error('❌ apply-snapshot error:', err)
-      console.error('   Stack:', err.stack);
-      res.writeHead(500)
-      res.end(JSON.stringify({ message: err.message }))
+      console.error('❌ Restore Fatal Error:', err)
+      sendError(res, 500, err.message)
     }
   })
 }
-
-// Custom setupWSConnection wrapper to track docs
+// ==========================================
+// 3. SETUP CONNECTION (FIXED PROPERTY ACCESS)
+// ==========================================
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
-  
-  // Get or create room
-  if (!docs.has(docName)) {
-    const ydoc = new Y.Doc()
-    const awareness = new awarenessProtocol.Awareness(ydoc)
-    docs.set(docName, {
-      doc: ydoc,
-      conns: new Map(),
-      awareness
-    })
-  }
-  
-  const room = docs.get(docName)
-  
-  // Setup connection with the existing doc
-  setupWSConnection(ws, req, {
-    ...options,
-    doc: room.doc // Use existing doc instead of creating new one
-  })
-  
-  // Track connection
-  room.conns.set(ws, true)
-  
-  console.log(`📡 Client connected to ${docName} (${room.conns.size} total)`)
-  
-  // Cleanup on disconnect
-  ws.on('close', () => {
-    const room = docs.get(docName)
-    if (room) {
-      room.conns.delete(ws)
-      console.log(`📡 Client disconnected from ${docName} (${room.conns.size} remaining)`)
-      
-      // Cleanup empty rooms after 5 minutes
+  setupWSConnection(ws, req, options)
+
+  const room = mapUtils.docs.get(docName)
+  if (room) {
+    // FIX: room CHÍNH LÀ DOC (WSSharedDoc extends Y.Doc)
+    // Không được gọi room.doc
+    activeDocs.set(docName, room) 
+    
+    console.log(`📡 CONNECTED: ${docName} (Global map synced)`)
+    
+    ws.on('close', () => {
       if (room.conns.size === 0) {
         setTimeout(() => {
-          const room = docs.get(docName)
-          if (room && room.conns.size === 0) {
-            docs.delete(docName)
-            console.log(`🗑️  Cleaned up empty room: ${docName}`)
+          const check = mapUtils.docs.get(docName)
+          if (!check || check.conns.size === 0) {
+             activeDocs.delete(docName)
+             mapUtils.docs.delete(docName)
+             console.log(`🗑️ GC: ${docName}`)
           }
-        }, 5 * 60 * 1000)
+        }, 30000)
       }
-    }
-  })
+    })
+  }
 }
 
+// ==========================================
+// 4. SERVER INIT
+// ==========================================
 server.on('upgrade', async (req, socket, head) => {
   try {
     const ctx = await authenticate(req)
-
-    if (!ctx.hasAccess) {
-      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
+    if (!ctx.hasAccess) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return }
+    
     wss.handleUpgrade(req, socket, head, ws => {
       ws.user = ctx.user
-      ws.role = ctx.role
-
-      setupWSConnectionWithTracking(ws, req, {
-        docName: ctx.docName,
-        gc: true,
-        persistence
-      })
+      setupWSConnectionWithTracking(ws, req, { docName: ctx.docName, gc: true, persistence })
     })
   } catch (err) {
-    console.error('❌ Realtime auth error:', err.message)
-    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-    socket.destroy()
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy()
   }
 })
 
+function sendError(res, status, msg) {
+  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ message: msg }))
+}
+
 server.listen(CONFIG.PORT, () => {
   console.log(`🚀 Realtime Server running at ws://localhost:${CONFIG.PORT}`)
-  console.log(`📡 HTTP API available at http://localhost:${CONFIG.PORT}`)
 })

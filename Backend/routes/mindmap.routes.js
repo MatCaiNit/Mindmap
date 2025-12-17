@@ -25,9 +25,10 @@ router.use(authMiddleware);
 
 // CRITICAL: Đặt routes cụ thể TRƯỚC routes có params
 // Version routes (đặt trước /:id)
-router.get('/:id/versions', listVersions);                                    // GET  /api/mindmaps/:id/versions
-router.get('/:id/versions/:versionId', getVersion);                           // GET  /api/mindmaps/:id/versions/:versionId
 router.post('/:id/versions/save', requireMindmapAccess('write'), saveManualVersion);  // POST /api/mindmaps/:id/versions/save
+router.get('/:id/versions', listVersions);                                    // GET  /api/mindmaps/:id/versions
+
+router.get('/:id/versions/:versionId', getVersion);                           // GET  /api/mindmaps/:id/versions/:versionId
 router.post('/:id/versions/:versionId/restore', requireMindmapAccess('write'), restoreVersion); // POST /api/mindmaps/:id/versions/:versionId/restore
 
 // Snapshot routes

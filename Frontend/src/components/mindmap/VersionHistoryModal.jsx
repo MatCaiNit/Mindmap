@@ -1,7 +1,8 @@
-//Frontend/src/components/mindmap/VersionHistoryModal.jsx
+// Frontend/src/components/mindmap/VersionHistoryModal.jsx - FIXED
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
+import { clearIndexedDB } from '../../lib/yjs'
 import { 
   XMarkIcon, 
   ClockIcon,
@@ -15,29 +16,34 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false)
   const queryClient = useQueryClient()
 
-  // Fetch versions list
   const { data: versions = [], isLoading } = useQuery({
     queryKey: ['versions', mindmapId],
     queryFn: () => versionService.listVersions(mindmapId),
   })
 
-  // Restore mutation with proper waiting
   const restoreMutation = useMutation({
-    mutationFn: (versionId) => versionService.restoreVersion(mindmapId, versionId),
-    onSuccess: async () => {
-      console.log('✅ Restore API call successful')
+    mutationFn: async (versionId) => {
+      console.log('🔄 Starting restore process...')
       
-      // Invalidate queries
-      await queryClient.invalidateQueries(['versions', mindmapId])
+      // Step 1: Call backend restore API
+      const result = await versionService.restoreVersion(mindmapId, versionId)
+      console.log('✅ Backend restore complete')
       
+      return result
+    },
+    onSuccess: async (data) => {
+      console.log('✅ Restore API successful, beginning cleanup...')
+      
+      // Close modals immediately
       setShowRestoreConfirm(false)
       setSelectedVersion(null)
+      onClose()
       
       // Show loading toast
       const toastId = 'restore-toast-' + Date.now()
       const toast = document.createElement('div')
       toast.id = toastId
-      toast.className = 'fixed bottom-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100] animate-slide-up'
+      toast.className = 'fixed bottom-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
       toast.innerHTML = `
         <div class="flex items-center space-x-3">
           <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -46,43 +52,58 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
       `
       document.body.appendChild(toast)
       
-      // Close modal immediately
-      onClose()
-      
-      // 🔥 FIX: Wait longer for both backend and realtime sync
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Update toast
-      const existingToast = document.getElementById(toastId)
-      if (existingToast) {
-        existingToast.className = 'fixed bottom-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
-        existingToast.innerHTML = `
-          <div class="flex items-center space-x-3">
-            <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            <span>Syncing with connected clients...</span>
-          </div>
-        `
-      }
-      
-      // Wait additional time for WebSocket broadcast
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // Final success
-      if (existingToast) {
-        existingToast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
-        existingToast.textContent = '✅ Version restored! Reloading...'
+      try {
+        // 🔥 CRITICAL: Clear IndexedDB cache
+        const mindmap = queryClient.getQueryData(['mindmap', mindmapId])
+        if (mindmap?.ydocId) {
+          console.log('🗑️  Clearing IndexedDB for:', mindmap.ydocId)
+          await clearIndexedDB(mindmap.ydocId)
+          console.log('✅ IndexedDB cleared')
+        }
         
+        // Wait for backend and realtime to sync
+        await new Promise(resolve => setTimeout(resolve, 3000))
+        
+        // Update toast
+        const existingToast = document.getElementById(toastId)
+        if (existingToast) {
+          existingToast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
+          existingToast.innerHTML = `
+            <div class="flex items-center space-x-3">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Restore complete! Reloading...</span>
+            </div>
+          `
+        }
+        
+        // Invalidate queries
+        await queryClient.invalidateQueries(['versions', mindmapId])
+        await queryClient.invalidateQueries(['mindmap', mindmapId])
+        
+        // 🔥 CRITICAL: Hard reload to force fresh Yjs connection
         setTimeout(() => {
-          existingToast.remove()
-          // 🔥 CRITICAL: Hard reload to ensure fresh Yjs state
+          console.log('🔄 Performing hard reload...')
           window.location.reload()
-        }, 1000)
+        }, 1500)
+        
+      } catch (error) {
+        console.error('❌ Cleanup error:', error)
+        
+        // Show error but still reload
+        const existingToast = document.getElementById(toastId)
+        if (existingToast) {
+          existingToast.className = 'fixed bottom-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
+          existingToast.textContent = '⚠️  Restore may be incomplete, reloading...'
+        }
+        
+        setTimeout(() => window.location.reload(), 2000)
       }
     },
     onError: (err) => {
       console.error('❌ Restore failed:', err)
       
-      // Show error toast
       const toast = document.createElement('div')
       toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
       toast.textContent = `❌ Restore failed: ${err.response?.data?.message || err.message}`
@@ -136,7 +157,7 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
 
   const confirmRestore = () => {
     if (selectedVersion) {
-      console.log('🔄 Starting restore for version:', selectedVersion.id || selectedVersion._id)
+      console.log('🔄 User confirmed restore:', selectedVersion.id || selectedVersion._id)
       restoreMutation.mutate(selectedVersion.id || selectedVersion._id)
     }
   }
@@ -146,7 +167,6 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
       {/* Main Modal */}
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl max-w-3xl w-full max-h-[80vh] flex flex-col">
-          {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
             <div className="flex items-center space-x-3">
               <ClockIcon className="w-6 h-6 text-primary-600" />
@@ -160,7 +180,6 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
             </button>
           </div>
 
-          {/* Content */}
           <div className="flex-1 overflow-y-auto p-6">
             {isLoading ? (
               <div className="text-center py-12">
@@ -230,7 +249,7 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
         </div>
       </div>
 
-      {/* Restore Confirmation Modal */}
+      {/* Restore Confirmation */}
       {showRestoreConfirm && selectedVersion && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-6">

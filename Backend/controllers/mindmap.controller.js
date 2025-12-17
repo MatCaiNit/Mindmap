@@ -104,7 +104,7 @@ export const saveUserSnapshot = async (req, res) => {
 // POST /api/internal/mindmaps/:ydocId/snapshot
 // Called by Realtime Server to save auto-snapshots
 export const saveRealtimeSnapshot = async (req, res) => {
-  const { ydocId } = req.params;
+  const ydocId = req.params.ydocId || req.params.id;
   const { snapshot } = req.body;
 
   try {
@@ -139,7 +139,7 @@ export const saveRealtimeSnapshot = async (req, res) => {
 // GET /api/internal/mindmaps/:ydocId/snapshot
 // Called by Realtime Server on doc load
 export const getRealtimeSnapshot = async (req, res) => {
-  const { ydocId } = req.params;
+  const ydocId = req.params.ydocId || req.params.id;
 
   try {
     const mindmap = await Mindmap.findOne({ ydocId });
