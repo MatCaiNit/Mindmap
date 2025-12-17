@@ -5,30 +5,57 @@ import { IndexeddbPersistence } from 'y-indexeddb'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:1234'
 
-export function createYjsProvider(ydocId, token) {
-  const ydoc = new Y.Doc()
-  
-  // 🔥 CRITICAL FIX: Clear IndexedDB cache before creating provider
-  // This ensures we always get fresh data from server after restore
-  const dbName = `y-indexeddb-${ydocId}`
-  
-  // Try to delete old IndexedDB
-  if (typeof window !== 'undefined' && window.indexedDB) {
+/**
+ * 🔥 CRITICAL FIX: Delete IndexedDB and WAIT before creating providers
+ */
+async function clearIndexedDBSync(ydocId) {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      resolve()
+      return
+    }
+
+    const dbName = `y-indexeddb-${ydocId}`
     const deleteRequest = window.indexedDB.deleteDatabase(dbName)
     
     deleteRequest.onsuccess = () => {
-      console.log(`🗑️  Cleared IndexedDB cache for ${ydocId}`)
+      console.log(`✅ IndexedDB cleared: ${dbName}`)
+      resolve()
     }
     
     deleteRequest.onerror = () => {
-      console.warn(`⚠️  Could not clear IndexedDB cache`)
+      console.warn(`⚠️  Failed to clear IndexedDB: ${dbName}`)
+      resolve() // Continue anyway
     }
-  }
+    
+    deleteRequest.onblocked = () => {
+      console.warn(`⚠️  IndexedDB delete blocked: ${dbName}`)
+      // Force resolve after timeout
+      setTimeout(() => resolve(), 1000)
+    }
+  })
+}
+
+/**
+ * Create Yjs provider with proper cleanup
+ * 🔥 NOW ASYNC to ensure IndexedDB is cleared first
+ */
+export async function createYjsProvider(ydocId, token) {
+  const ydoc = new Y.Doc()
   
-  // Local persistence (will be populated from server)
+  // 🔥 STEP 1: Clear IndexedDB FIRST and WAIT
+  console.log('🗑️  Clearing IndexedDB for:', ydocId)
+  await clearIndexedDBSync(ydocId)
+  console.log('✅ IndexedDB cleared, creating providers...')
+  
+  // 🔥 STEP 2: NOW create IndexedDB persistence (will be empty)
   const indexeddbProvider = new IndexeddbPersistence(ydocId, ydoc)
   
-  // WebSocket provider
+  // 🔥 STEP 3: Wait for IndexedDB to be ready
+  await indexeddbProvider.whenSynced
+  console.log('✅ IndexedDB persistence ready')
+  
+  // 🔥 STEP 4: Create WebSocket provider (will load from server)
   const wsProvider = new WebsocketProvider(
     WS_URL,
     ydocId,
@@ -36,13 +63,11 @@ export function createYjsProvider(ydocId, token) {
     {
       params: { token },
       connect: true,
-      // 🔥 NEW: More aggressive reconnect
       maxBackoffTime: 2500,
       resyncInterval: 5000
     }
   )
 
-  // Export awareness for cursor tracking
   const awareness = wsProvider.awareness
 
   return {
@@ -57,31 +82,9 @@ export function createYjsProvider(ydocId, token) {
   }
 }
 
-// 🔥 NEW: Helper to clear IndexedDB for a specific document
+/**
+ * Helper to clear IndexedDB for a specific document
+ */
 export async function clearIndexedDB(ydocId) {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      resolve()
-      return
-    }
-
-    const dbName = `y-indexeddb-${ydocId}`
-    const request = window.indexedDB.deleteDatabase(dbName)
-    
-    request.onsuccess = () => {
-      console.log(`✅ IndexedDB cleared: ${dbName}`)
-      resolve()
-    }
-    
-    request.onerror = () => {
-      console.error(`❌ Failed to clear IndexedDB: ${dbName}`)
-      reject(request.error)
-    }
-    
-    request.onblocked = () => {
-      console.warn(`⚠️  IndexedDB delete blocked: ${dbName}`)
-      // Force close any open connections
-      setTimeout(() => resolve(), 1000)
-    }
-  })
+  return clearIndexedDBSync(ydocId)
 }

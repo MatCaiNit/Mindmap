@@ -20,65 +20,89 @@ export default function EditorPage() {
   const [undoManager, setUndoManager] = useState(null)
   const [synced, setSynced] = useState(false)
   const [reconnectAttempts, setReconnectAttempts] = useState(0)
+  const [isConnecting, setIsConnecting] = useState(false)
 
   const { data: mindmap, isLoading } = useQuery({
     queryKey: ['mindmap', id],
     queryFn: () => mindmapService.get(id),
   })
 
-  // Setup Yjs Provider
+  // 🔥 Setup Yjs Provider with ASYNC cleanup
   useEffect(() => {
     if (!mindmap || !accessToken) return
 
-    console.log('🔌 Setting up Yjs Provider for:', mindmap.ydocId)
+    let mounted = true
+    setIsConnecting(true)
 
-    const provider = createYjsProvider(mindmap.ydocId, accessToken)
-    
-    // 🔥 FIX: Better sync handling
-    provider.wsProvider.on('sync', (isSynced) => {
-      console.log('📡 Yjs sync event:', isSynced)
-      setSynced(isSynced)
-      
-      if (isSynced) {
-        console.log('✅ Document fully synced')
-        setReconnectAttempts(0)
+    async function setupProvider() {
+      console.log('🔌 Setting up Yjs Provider for:', mindmap.ydocId)
+
+      try {
+        // 🔥 AWAIT the provider creation (ensures IndexedDB is cleared)
+        const provider = await createYjsProvider(mindmap.ydocId, accessToken)
+        
+        if (!mounted) {
+          provider.destroy()
+          return
+        }
+
+        // Setup event listeners
+        provider.wsProvider.on('sync', (isSynced) => {
+          console.log('📡 Yjs sync event:', isSynced)
+          setSynced(isSynced)
+          
+          if (isSynced) {
+            console.log('✅ Document fully synced')
+            setReconnectAttempts(0)
+          }
+        })
+
+        provider.wsProvider.on('status', ({ status }) => {
+          console.log('🔌 WebSocket status:', status)
+          
+          if (status === 'connected') {
+            console.log('✅ WebSocket connected')
+          } else if (status === 'disconnected') {
+            console.log('⚠️  WebSocket disconnected, will retry...')
+            setReconnectAttempts(prev => prev + 1)
+          }
+        })
+
+        provider.wsProvider.on('connection-close', ({ event }) => {
+          console.log('❌ WebSocket closed:', event?.code, event?.reason)
+          
+          if (event?.reason === 'Restore complete') {
+            console.log('🔄 Restore detected, reloading...')
+            setTimeout(() => window.location.reload(), 1000)
+          }
+        })
+
+        provider.wsProvider.on('connection-error', ({ error }) => {
+          console.error('❌ WebSocket error:', error)
+        })
+
+        setYjsProvider(provider)
+
+        // Setup Undo Manager
+        const undo = createUndoManager(provider.ydoc)
+        setUndoManager(undo)
+        
+        setIsConnecting(false)
+
+      } catch (err) {
+        console.error('❌ Failed to setup provider:', err)
+        setIsConnecting(false)
       }
-    })
+    }
 
-    provider.wsProvider.on('status', ({ status }) => {
-      console.log('🔌 WebSocket status:', status)
-      
-      if (status === 'connected') {
-        console.log('✅ WebSocket connected')
-      } else if (status === 'disconnected') {
-        console.log('⚠️  WebSocket disconnected, will retry...')
-        setReconnectAttempts(prev => prev + 1)
-      }
-    })
-
-    provider.wsProvider.on('connection-close', ({ event }) => {
-      console.log('❌ WebSocket closed:', event.code, event.reason)
-      
-      // If closed by restore operation, reload page
-      if (event.reason === 'Restore complete') {
-        console.log('🔄 Restore detected, reloading...')
-        setTimeout(() => window.location.reload(), 1000)
-      }
-    })
-
-    provider.wsProvider.on('connection-error', ({ event }) => {
-      console.error('❌ WebSocket error:', event)
-    })
-
-    setYjsProvider(provider)
-
-    // Setup Undo Manager
-    const undo = createUndoManager(provider.ydoc)
-    setUndoManager(undo)
+    setupProvider()
 
     return () => {
+      mounted = false
       console.log('🔌 Cleaning up provider')
-      provider.destroy()
+      if (yjsProvider) {
+        yjsProvider.destroy()
+      }
     }
   }, [mindmap, accessToken])
 
@@ -88,7 +112,7 @@ export default function EditorPage() {
     return useUndoShortcuts(undoManager)
   }, [undoManager])
 
-  // 🔥 NEW: Auto-reload if stuck disconnected
+  // Auto-reload if stuck disconnected
   useEffect(() => {
     if (reconnectAttempts > 5) {
       console.log('⚠️  Too many reconnect attempts, reloading page...')
@@ -132,7 +156,7 @@ export default function EditorPage() {
       />
 
       <div className="flex-1 relative">
-        {yjsProvider ? (
+        {yjsProvider && !isConnecting ? (
           <ReactFlowProvider>
             <MindmapCanvas 
               ydoc={yjsProvider.ydoc}
@@ -144,7 +168,9 @@ export default function EditorPage() {
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
               <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-              <p className="text-gray-600">Connecting...</p>
+              <p className="text-gray-600">
+                {isConnecting ? 'Initializing...' : 'Connecting...'}
+              </p>
               {reconnectAttempts > 0 && (
                 <p className="text-sm text-yellow-600 mt-2">
                   Reconnect attempt {reconnectAttempts}/5

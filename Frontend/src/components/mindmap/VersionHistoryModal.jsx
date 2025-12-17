@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/VersionHistoryModal.jsx - FIXED
+// Frontend/src/components/mindmap/VersionHistoryModal.jsx - FINAL FIX
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
@@ -11,7 +11,7 @@ import {
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 
-export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
+export default function VersionHistoryModal({ mindmapId, onClose }) {
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false)
   const queryClient = useQueryClient()
@@ -25,7 +25,7 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
     mutationFn: async (versionId) => {
       console.log('🔄 Starting restore process...')
       
-      // Step 1: Call backend restore API
+      // Call backend restore API
       const result = await versionService.restoreVersion(mindmapId, versionId)
       console.log('✅ Backend restore complete')
       
@@ -43,7 +43,7 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
       const toastId = 'restore-toast-' + Date.now()
       const toast = document.createElement('div')
       toast.id = toastId
-      toast.className = 'fixed bottom-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
+      toast.className = 'fixed bottom-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100] animate-slide-up'
       toast.innerHTML = `
         <div class="flex items-center space-x-3">
           <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -53,16 +53,23 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
       document.body.appendChild(toast)
       
       try {
-        // 🔥 CRITICAL: Clear IndexedDB cache
+        // 🔥 STEP 1: Get mindmap ydocId
         const mindmap = queryClient.getQueryData(['mindmap', mindmapId])
-        if (mindmap?.ydocId) {
-          console.log('🗑️  Clearing IndexedDB for:', mindmap.ydocId)
-          await clearIndexedDB(mindmap.ydocId)
-          console.log('✅ IndexedDB cleared')
+        if (!mindmap?.ydocId) {
+          throw new Error('Mindmap data not found')
         }
         
-        // Wait for backend and realtime to sync
-        await new Promise(resolve => setTimeout(resolve, 3000))
+        console.log('🗑️  Clearing IndexedDB for:', mindmap.ydocId)
+        
+        // 🔥 STEP 2: Clear IndexedDB cache (CRITICAL!)
+        await clearIndexedDB(mindmap.ydocId)
+        console.log('✅ IndexedDB cleared')
+        
+        // 🔥 STEP 3: Wait for backend + realtime to fully sync
+        // This gives time for:
+        // - Backend to save restore record
+        // - Realtime to apply snapshot and save to persistence
+        await new Promise(resolve => setTimeout(resolve, 2000))
         
         // Update toast
         const existingToast = document.getElementById(toastId)
@@ -78,27 +85,34 @@ export default function VersionHistoryModal({ mindmapId, onClose, onRestore }) {
           `
         }
         
-        // Invalidate queries
+        // 🔥 STEP 4: Invalidate queries
         await queryClient.invalidateQueries(['versions', mindmapId])
         await queryClient.invalidateQueries(['mindmap', mindmapId])
         
-        // 🔥 CRITICAL: Hard reload to force fresh Yjs connection
+        // 🔥 STEP 5: Hard reload to force fresh connection
         setTimeout(() => {
           console.log('🔄 Performing hard reload...')
           window.location.reload()
-        }, 1500)
+        }, 1000)
         
       } catch (error) {
         console.error('❌ Cleanup error:', error)
         
-        // Show error but still reload
+        // Show error
         const existingToast = document.getElementById(toastId)
         if (existingToast) {
-          existingToast.className = 'fixed bottom-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
-          existingToast.textContent = '⚠️  Restore may be incomplete, reloading...'
+          existingToast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
+          existingToast.innerHTML = `
+            <div class="flex items-center space-x-3">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <span>Restore failed: ${error.message}</span>
+            </div>
+          `
+          
+          setTimeout(() => existingToast.remove(), 5000)
         }
-        
-        setTimeout(() => window.location.reload(), 2000)
       }
     },
     onError: (err) => {
