@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 
 const VersionSchema = new mongoose.Schema({
   mindmapId: { type: mongoose.Schema.Types.ObjectId, ref: 'Mindmap', index: true },
-  snapshot: { type: Buffer, required: true },
+  snapshot: { type: Object, required: true },
 
   // NEW
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

@@ -1,13 +1,16 @@
-// ==========================================
-// FILE: Frontend/src/components/mindmap/MindmapNode.jsx
-// ==========================================
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position } from 'reactflow'
 import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 
 export default function MindmapNode({ data, id }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [label, setLabel] = useState(data.label)
+  const [localLabel, setLocalLabel] = useState(data.label) // For immediate UI feedback
+  const inputRef = useRef(null)
+
+  // Sync label from Yjs when it changes (from other users or undo/redo)
+  useEffect(() => {
+    setLocalLabel(data.label)
+  }, [data.label])
 
   const handleDoubleClick = () => {
     setIsEditing(true)
@@ -16,16 +19,21 @@ export default function MindmapNode({ data, id }) {
   const handleBlur = useCallback(() => {
     setIsEditing(false)
     
-    if (data.yNodes && label !== data.label) {
+    // Only update Yjs if text actually changed
+    if (data.yNodes && localLabel !== data.label) {
       const node = data.yNodes.get(id)
       if (node) {
         data.yNodes.set(id, {
           ...node,
-          label: label,
+          label: localLabel,
         })
       }
     }
-  }, [id, label, data])
+  }, [id, localLabel, data])
+
+  const handleChange = (e) => {
+    setLocalLabel(e.target.value)
+  }
 
   const handleDelete = useCallback((e) => {
     e.stopPropagation()
@@ -36,9 +44,22 @@ export default function MindmapNode({ data, id }) {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
+      e.preventDefault()
       handleBlur()
     }
+    if (e.key === 'Escape') {
+      setLocalLabel(data.label) // Reset to original
+      setIsEditing(false)
+    }
   }
+
+  // Auto-focus input when editing
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditing])
 
   return (
     <div 
@@ -57,17 +78,17 @@ export default function MindmapNode({ data, id }) {
 
       {isEditing ? (
         <input
+          ref={inputRef}
           type="text"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          value={localLabel}
+          onChange={handleChange}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          autoFocus
           className="w-full text-sm font-medium text-gray-900 outline-none bg-transparent"
         />
       ) : (
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-gray-900">{label}</span>
+          <span className="text-sm font-medium text-gray-900">{localLabel}</span>
           <PencilIcon className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
         </div>
       )}

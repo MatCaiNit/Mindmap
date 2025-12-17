@@ -4,6 +4,8 @@ import Version from '../models/Version.js';
 import AuditLog from '../models/AuditLog.js';
 import { nanoid } from 'nanoid';
 import { checkMindmapAccess } from '../services/access.service.js';
+import { createSnapshotSchema, validateSnapshotSchema } from '../utils/snapshotSchema.js';
+import jwt from 'jsonwebtoken'
 import axios from 'axios';
 
 export async function createMindmap(req, res) {
@@ -74,219 +76,206 @@ export async function deleteMindmap(req, res) {
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
 
-export async function saveUserSnapshot(req, res) {
+// POST /api/mindmaps/:id/snapshot
+export const saveUserSnapshot = async (req, res) => {
+  const { id } = req.params; // mindmapId
+  const { encodedState } = req.body;
+
+  const mindmap = await Mindmap.findById(id);
+  if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
+
+  const snapshot = createSnapshotSchema(encodedState, {
+    createdBy: req.user.id,
+    reason: 'manual'
+  });
+
+  await Version.create({
+    mindmapId: mindmap._id,
+    snapshot,
+    userId: req.user.id,
+    type: 'manual',
+    size: Buffer.byteLength(encodedState, 'base64')
+  });
+
+  res.json({ ok: true });
+};
+
+
+// POST /api/internal/mindmaps/:ydocId/snapshot
+// Called by Realtime Server to save auto-snapshots
+export const saveRealtimeSnapshot = async (req, res) => {
+  const { ydocId } = req.params;
+  const { snapshot } = req.body;
+
   try {
-    const { id } = req.params;
-    const { snapshot } = req.body;
-    if (!snapshot) return res.status(400).json({ message: 'Missing snapshot' });
-    const role = await checkMindmapAccess(req.user.id, id, 'write');
-    if (!role) return res.status(403).json({ message: 'Permission denied' });
-    const mm = await Mindmap.findById(id);
-    if (!mm) return res.status(404).json({ message: 'Not found' });
-    const buf = Buffer.from(snapshot, 'base64');
-    mm.snapshot = buf;
-    await mm.save();
+    const mindmap = await Mindmap.findOne({ ydocId });
+    if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
+    
+    validateSnapshotSchema(snapshot);
+    const size = Buffer.byteLength(snapshot.encodedState, 'base64');
+
+    // 1. Save to Version collection
     await Version.create({
-      mindmapId: mm._id,
-      snapshot: buf,
-      userId: req.user.id,
-      type: 'manual',
-      label: 'User saved snapshot',
-      size: buf.length
+      mindmapId: mindmap._id,
+      snapshot,
+      type: 'auto',
+      size
     });
-    await AuditLog.create({ mindmapId: mm._id, userId: req.user.id, action: 'save-snapshot', detail: { size: buf.length } });
-    res.json({ ok: true, message: 'Snapshot saved' });
-  } catch (err) { res.status(500).json({ message: err.message }); }
-}
 
-export async function saveRealtimeSnapshot(req, res) {
-  try {
-    const { id } = req.params; // LƯU Ý: Đây là ydocId do route truyền vào
-    const { snapshot } = req.body; // Base64 String
-
-    if (!snapshot) return res.status(400).json({ message: "Missing snapshot" });
-
-    const buf = Buffer.from(snapshot, 'base64');
-
-    // Tìm bằng ydocId vì Realtime Server không biết _id
-    const mindmap = await Mindmap.findOne({ ydocId: id });
-    if (!mindmap) return res.status(404).json({ message: "Mindmap not found" });
-
-    if (!mindmap.snapshot || !mindmap.snapshot.equals(buf)) {
-      mindmap.snapshot = buf;
-      await mindmap.save();
-    }
-    // Tuỳ chọn: Có thể không lưu Version ở đây để tránh spam DB (vì auto save chạy liên tục)
-    // Hoặc lưu Version nhưng có debounce logic
-    
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("saveRealtimeSnapshot error:", err);
-    return res.status(500).json({ message: err.message });
-  }
-}
-
-// Đổi tên hàm này thành getRealtimeSnapshot để rõ nghĩa hơn
-export async function getRealtimeSnapshot(req, res) {
-  try {
-    const { id } = req.params; // Đây là ydocId
-
-    // Tìm bằng ydocId
-    const mm = await Mindmap.findOne({ ydocId: id }).select('snapshot');
-
-    if (!mm) return res.status(404).json({ message: 'Mindmap not found' });
-    if (!mm.snapshot) {
-      return res.json({ snapshot: null, empty: true });
-    }
-
-    return res.json({
-      snapshot: mm.snapshot.toString('base64'),
-      empty: false
-    });
-  } catch (err) {
-    console.error("getRealtimeSnapshot error:", err);
-    return res.status(500).json({ message: err.message });
-  }
-}
-
-export async function restoreSnapshot(req, res) {
-  try {
-    const { id } = req.params; // Mindmap ID (_id)
-    const { versionId } = req.body;
-
-    if (!versionId) return res.status(400).json({ message: "Missing versionId" });
-
-    // --- QUAN TRỌNG: Thêm check quyền ---
-    const role = await checkMindmapAccess(req.user.id, id, 'write');
-    if (!role) return res.status(403).json({ message: 'Permission denied' });
-    // ------------------------------------
-    const version = await Version.findById(versionId);
-    if (!version) return res.status(404).json({ message: "Version not found" });
-    if (version.mindmapId.toString() !== id) {
-      return res.status(400).json({ message: 'Version does not belong to this mindmap' });
-    }
-
-
-    const mindmap = await Mindmap.findById(id);
-    if (!mindmap) return res.status(404).json({ message: "Mindmap not found" });
-
-    if (
-      mindmap.snapshot &&
-      Buffer.compare(mindmap.snapshot, version.snapshot) === 0
-    ) {
-      return res.status(400).json({
-        message: 'Snapshot is already the current version'
-      });
-    }
-    const ydocId = mindmap.ydocId;
-    const realtimeUrl = process.env.REALTIME_URL;
-    if (!realtimeUrl) {
-      return res.status(500).json({ message: "REALTIME_URL not configured" });
-    }
-
-
-    // Gọi sang Realtime Server để force update
-    // Realtime server cần có route POST /apply-snapshot
-    await axios.post(
-      `${realtimeUrl}/apply-snapshot`,
-      { 
-        ydocId, 
-        snapshot: version.snapshot.toString('base64') 
-      },
-      {
-        headers: {
-            // Header này phải khớp với cấu hình bên Realtime Server
-           'x-service-token': process.env.REALTIME_SERVICE_TOKEN 
-        },
-        timeout: 5000
-      }
-    );
-    
-    // Update snapshot hiện tại
-    mindmap.snapshot = version.snapshot;
+    // 🔥 CRITICAL FIX: Also update Mindmap.snapshot
+    mindmap.snapshot = Buffer.from(snapshot.encodedState, 'base64');
     await mindmap.save();
 
-    // Create new version record (restore)
-    const restoredVersion = await Version.create({
-      mindmapId: mindmap._id,
-      snapshot: version.snapshot,
-      userId: req.user.id,
-      type: 'restore',
-      label: `Restored from version ${version._id}`,
-      size: version.snapshot.length
-    });
+    console.log(`✅ Auto-snapshot saved for ${ydocId} (${size} bytes)`);
 
-    // Lưu log
-    await AuditLog.create({
-      mindmapId: mindmap._id,
-      userId: req.user.id,
-      action: 'restore-version',
-      detail: {
-        fromVersionId: version._id,
-        newVersionId: restoredVersion._id
-      }
-    });
-
-    return res.json({
-      ok: true,
-      message: 'Snapshot restored successfully',
-      restoredVersionId: restoredVersion._id
-    });
+    res.json({ ok: true });
   } catch (err) {
-    console.error("restoreSnapshot error:", err);
-    return res.status(500).json({ message: err.message });
+    console.error('❌ saveRealtimeSnapshot error:', err);
+    res.status(500).json({ message: err.message });
   }
-}
+};
+
+
+// GET /api/internal/mindmaps/:ydocId/snapshot
+// Called by Realtime Server on doc load
+export const getRealtimeSnapshot = async (req, res) => {
+  const { ydocId } = req.params;
+
+  try {
+    const mindmap = await Mindmap.findOne({ ydocId });
+    if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
+
+    // 🔥 CRITICAL FIX: Prioritize Mindmap.snapshot first
+    if (mindmap.snapshot) {
+      console.log(`📦 Returning snapshot from Mindmap.snapshot (${mindmap.snapshot.length} bytes)`);
+      
+      const snapshot = {
+        schemaVersion: 1,
+        encodedState: mindmap.snapshot.toString('base64'),
+        meta: {
+          createdBy: 'persistence',
+          reason: 'restore',
+          clientCount: 0
+        },
+        createdAt: mindmap.updatedAt.toISOString()
+      };
+
+      return res.json({ snapshot });
+    }
+
+    // Fallback: Load from latest Version
+    const version = await Version.findOne({ mindmapId: mindmap._id })
+      .sort({ createdAt: -1 });
+
+    if (!version) {
+      console.log(`⚠️  No snapshot found for ${ydocId}`);
+      return res.status(404).json({ message: 'No snapshot found' });
+    }
+
+    console.log(`📦 Returning snapshot from Version collection`);
+    res.json({ snapshot: version.snapshot });
+
+  } catch (err) {
+    console.error('❌ getRealtimeSnapshot error:', err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/mindmaps/:id/versions/:versionId/restore
+export const restoreSnapshot = async (req, res) => {
+  const { id, versionId } = req.params;
+
+  const mindmap = await Mindmap.findById(id);
+  if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
+
+  const version = await Version.findById(versionId);
+  if (!version) return res.status(404).json({ message: 'Version not found' });
+
+  await Version.create({
+    mindmapId: mindmap._id,
+    snapshot: version.snapshot,
+    userId: req.user.id,
+    type: 'restore',
+    label: `Restore from ${versionId}`,
+    size: Buffer.byteLength(version.snapshot.encodedState, 'base64')
+  });
+
+  res.json({ ok: true });
+};
+
 
 // NEW: Verify user access to mindmap (cho Realtime Server)
 export async function verifyMindmapAccess(req, res) {
   try {
-    const ydocId = req.params.id;
-    const userId = req.headers['x-user-id'];
+    const ydocId = req.params.id;  // This is ydocId, not mindmap _id
+    const authHeader = req.headers.authorization;
     
-    if (!userId) return res.json({ hasAccess: false });
+    console.log('🔐 verifyMindmapAccess called');
+    console.log('   ydocId:', ydocId);
+    console.log('   Authorization:', authHeader ? 'Present' : 'Missing');
     
+    // Extract user ID from JWT token
+    let userId = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
+        userId = decoded.id;
+        console.log('   ✅ User ID from token:', userId);
+      } catch (err) {
+        console.error('   ❌ JWT verification failed:', err.message);
+        return res.json({ hasAccess: false });
+      }
+    }
+    
+    if (!userId) {
+      console.log('   ❌ No userId found');
+      return res.json({ hasAccess: false });
+    }
+    
+    // CRITICAL FIX: Find by ydocId, not _id
     const mindmap = await Mindmap.findOne({ ydocId }).lean();
-    if (!mindmap) return res.json({ hasAccess: false });
+    
+    if (!mindmap) {
+      console.log('   ❌ Mindmap not found for ydocId:', ydocId);
+      return res.json({ hasAccess: false });
+    }
+
+    console.log('   ✅ Mindmap found:', mindmap._id);
 
     const role = await checkMindmapAccess(userId, mindmap._id.toString(), 'read');
+    
+    console.log('   Access check result:', { role, hasAccess: !!role });
+
     res.json({ 
       hasAccess: !!role, 
       role,
       mindmapId: mindmap._id,
-      ownerId: mindmap.ownerId
+      ownerId: mindmap.ownerId,
+      user: { id: userId }
     });
   } catch (err) {
-    console.error('verifyMindmapAccess error:', err);
+    console.error('❌ verifyMindmapAccess error:', err);
     res.status(500).json({ hasAccess: false });
   }
 }
 
-export async function getVersion(req, res) {
-  try {
-    const { id, versionId } = req.params;
+// GET /api/mindmaps/:id/versions/:versionId
+export const getVersion = async (req, res) => {
+  const { versionId } = req.params;
 
-    const role = await checkMindmapAccess(req.user.id, id, 'read');
-    if (!role) return res.status(403).json({ message: 'Permission denied' });
+  const version = await Version.findById(versionId)
+    .populate('userId', 'name email');
 
-    const version = await Version.findOne({
-      _id: versionId,
-      mindmapId: id
-    });
+  if (!version) return res.status(404).json({ message: 'Version not found' });
 
-    if (!version) return res.status(404).json({ message: 'Version not found' });
+  res.json({
+    id: version._id,
+    snapshot: version.snapshot,
+    type: version.type,
+    label: version.label,
+    createdAt: version.createdAt,
+    user: version.userId
+  });
+};
 
-    res.json({
-      ok: true,
-      version: {
-        _id: version._id,
-        createdAt: version.createdAt,
-        type: version.type,
-        label: version.label,
-        snapshot: version.snapshot.toString('base64')
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-}

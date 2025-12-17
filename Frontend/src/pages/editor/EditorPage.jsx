@@ -1,6 +1,3 @@
-// ==========================================
-// FILE: Frontend/src/pages/editor/EditorPage.jsx
-// ==========================================
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -8,6 +5,7 @@ import { ReactFlowProvider } from 'reactflow'
 import { mindmapService } from '../../services/mindmapService'
 import { useAuthStore } from '../../stores/authStore'
 import { createYjsProvider } from '../../lib/yjs'
+import { createUndoManager, useUndoShortcuts } from '../../lib/undoManager' // NEW
 import MindmapCanvas from '../../components/mindmap/MindmapCanvas'
 import EditorToolbar from '../../components/mindmap/EditorToolbar'
 import CollaboratorsList from '../../components/mindmap/CollaboratorsList'
@@ -18,6 +16,7 @@ export default function EditorPage() {
   const accessToken = useAuthStore((state) => state.accessToken)
   
   const [yjsProvider, setYjsProvider] = useState(null)
+  const [undoManager, setUndoManager] = useState(null) // NEW
   const [synced, setSynced] = useState(false)
 
   const { data: mindmap, isLoading } = useQuery({
@@ -25,26 +24,47 @@ export default function EditorPage() {
     queryFn: () => mindmapService.get(id),
   })
 
+  // Setup Yjs Provider
   useEffect(() => {
     if (!mindmap || !accessToken) return
+
+    console.log('🔌 Setting up Yjs Provider for:', mindmap.ydocId)
 
     const provider = createYjsProvider(mindmap.ydocId, accessToken)
     
     provider.wsProvider.on('sync', (isSynced) => {
+      console.log('📡 Yjs sync event:', isSynced)
       setSynced(isSynced)
-      console.log('Yjs sync status:', isSynced)
     })
 
     provider.wsProvider.on('status', ({ status }) => {
-      console.log('WebSocket status:', status)
+      console.log('🔌 WebSocket status:', status)
+    })
+
+    provider.wsProvider.on('connection-close', ({ event }) => {
+      console.log('❌ WebSocket closed:', event)
+    })
+
+    provider.wsProvider.on('connection-error', ({ event }) => {
+      console.error('❌ WebSocket error:', event)
     })
 
     setYjsProvider(provider)
+
+    // NEW: Setup Undo Manager
+    const undo = createUndoManager(provider.ydoc)
+    setUndoManager(undo)
 
     return () => {
       provider.destroy()
     }
   }, [mindmap, accessToken])
+
+  // NEW: Bind keyboard shortcuts
+  useEffect(() => {
+    if (!undoManager) return
+    return useUndoShortcuts(undoManager)
+  }, [undoManager])
 
   if (isLoading) {
     return (
@@ -77,6 +97,7 @@ export default function EditorPage() {
       <EditorToolbar 
         mindmap={mindmap} 
         synced={synced}
+        undoManager={undoManager} // NEW: Pass undo manager
         onBack={() => navigate('/dashboard')}
       />
 

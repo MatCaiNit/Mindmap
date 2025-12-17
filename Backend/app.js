@@ -7,7 +7,6 @@ import authRoutes from './routes/auth.routes.js';
 import mindmapRoutes from './routes/mindmap.routes.js';
 import nodeRoutes from './routes/node.routes.js';
 import collabRoutes from './routes/collab.routes.js';
-import versionRoutes from './routes/version.routes.js';
 import internalRoutes from './routes/internal.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 
@@ -20,7 +19,6 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/internal', internalRoutes);
 
 app.use('/api/auth', authRoutes);
-app.use('/api/mindmaps', versionRoutes);
 app.use('/api/mindmaps', mindmapRoutes);
 app.use('/api/nodes', nodeRoutes);
 app.use('/api/collab', collabRoutes);

@@ -17,7 +17,8 @@
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.0",
     "mongoose": "^7.3.1",
-    "nanoid": "^4.0.0"
+    "nanoid": "^4.0.0",
+    "yjs": "^13.6.8"
   },
   "devDependencies": { "nodemon": "^2.0.22" }
 }

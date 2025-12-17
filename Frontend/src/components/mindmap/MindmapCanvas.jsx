@@ -1,7 +1,4 @@
-
-// ==========================================
-// FILE: Frontend/src/components/mindmap/MindmapCanvas.jsx
-// ==========================================
+// Frontend/src/components/mindmap/MindmapCanvas.jsx - WITH DEBUG
 import { useEffect, useState, useCallback } from 'react'
 import ReactFlow, {
   Background,
@@ -22,7 +19,6 @@ const nodeTypes = {
   mindmapNode: MindmapNode,
 }
 
-// User colors for cursors
 const USER_COLORS = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', 
   '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
@@ -46,10 +42,19 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
   const yNodes = ydoc.getMap('nodes')
   const yEdges = ydoc.getArray('edges')
 
-  // Get awareness states for cursors
   const awarenessStates = useAwareness(awareness)
 
-  // Set local awareness (user info & color)
+  // 🔥 DEBUG: Log Yjs state
+  useEffect(() => {
+    console.log('🔍 MindmapCanvas mounted');
+    console.log('   yNodes size:', yNodes.size);
+    console.log('   yEdges length:', yEdges.length);
+    
+    yNodes.forEach((value, key) => {
+      console.log(`   Node ${key}:`, value);
+    });
+  }, []);
+
   useEffect(() => {
     if (!awareness || !user) return
 
@@ -67,7 +72,6 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
     }
   }, [awareness, user])
 
-  // Update cursor position in awareness
   const handleMouseMove = useCallback((event) => {
     if (!awareness) return
 
@@ -82,8 +86,13 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
   // Sync Yjs → React Flow
   useEffect(() => {
     const updateFromYjs = () => {
+      console.log('🔄 updateFromYjs called');
+      console.log('   yNodes size:', yNodes.size);
+      console.log('   yEdges length:', yEdges.length);
+      
       const nodesData = []
       yNodes.forEach((value, key) => {
+        console.log(`   Processing node ${key}:`, value);
         nodesData.push({
           id: key,
           type: 'mindmapNode',
@@ -95,6 +104,8 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
           },
         })
       })
+      
+      console.log('   React nodes to set:', nodesData.length);
       setNodes(nodesData)
 
       const edgesData = yEdges.toArray().map((edge, idx) => ({
@@ -103,6 +114,8 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         target: edge.target,
         type: 'smoothstep',
       }))
+      
+      console.log('   React edges to set:', edgesData.length);
       setEdges(edgesData)
     }
 
@@ -119,23 +132,35 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
 
   // Handle node drag
   const onNodeDragStop = useCallback((event, node) => {
+    console.log('🎯 Node drag stopped:', node.id);
+    console.log('   New position:', node.position);
+    
     const existingNode = yNodes.get(node.id)
     if (existingNode) {
+      console.log('   Updating Yjs with new position');
       yNodes.set(node.id, {
         ...existingNode,
         position: node.position,
       })
+    } else {
+      console.warn('   ⚠️  Node not found in Yjs!');
     }
   }, [yNodes])
 
   // Handle connection
   const onConnect = useCallback((params) => {
+    console.log('🔗 New connection:', params);
+    
     const newEdge = {
       id: `e-${params.source}-${params.target}`,
       source: params.source,
       target: params.target,
     }
+    
+    console.log('   Pushing to yEdges:', newEdge);
     yEdges.push([newEdge])
+    
+    console.log('   yEdges length now:', yEdges.length);
   }, [yEdges])
 
   // Add new node (double click)
@@ -149,11 +174,27 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         y: event.clientY - bounds.top,
       })
       
+      console.log('➕ Adding new node:', id);
+      console.log('   Position:', position);
+      console.log('   yNodes size before:', yNodes.size);
+      
       yNodes.set(id, {
         label: 'New Node',
         position,
         color: '#3b82f6',
       })
+      
+      console.log('   yNodes size after:', yNodes.size);
+      
+      // 🔥 DEBUG: Verify it was actually added
+      setTimeout(() => {
+        console.log('   Verification: yNodes.has(' + id + '):', yNodes.has(id));
+        if (yNodes.has(id)) {
+          console.log('   ✅ Node successfully added to Yjs');
+        } else {
+          console.error('   ❌ Node NOT in Yjs!');
+        }
+      }, 100);
     }
   }, [yNodes, reactFlowInstance])
 
@@ -178,7 +219,6 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         <MiniMap />
       </ReactFlow>
 
-      {/* Render other users' cursors */}
       {awarenessStates.map((state) => (
         state.cursor && (
           <Cursor
@@ -190,12 +230,10 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         )
       ))}
 
-      {/* Help Text */}
       <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-2 text-sm text-gray-600">
         <p>💡 Double-click canvas to add node • Drag to connect • Double-click node to edit</p>
       </div>
 
-      {/* Online users indicator */}
       <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg px-3 py-2 text-sm">
         <div className="flex items-center space-x-2">
           <div className="flex -space-x-2">
@@ -219,6 +257,13 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
             {awarenessStates.length} online
           </span>
         </div>
+      </div>
+      
+      {/* 🔥 DEBUG PANEL */}
+      <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 text-xs font-mono">
+        <div className="font-bold mb-1">Yjs State:</div>
+        <div>Nodes: {yNodes.size}</div>
+        <div>Edges: {yEdges.length}</div>
       </div>
     </div>
   )
