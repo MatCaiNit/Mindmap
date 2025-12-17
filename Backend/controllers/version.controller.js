@@ -1,67 +1,12 @@
-// Backend/controllers/version.controller.js
+// Backend/controllers/version.controller.js - FIXED
+
 import Version from '../models/Version.js';
 import Mindmap from '../models/Mindmap.js';
 import AuditLog from '../models/AuditLog.js';
 import { checkMindmapAccess } from '../services/access.service.js';
 import axios from 'axios';
-import * as Y from 'yjs'; 
 
 const REALTIME_URL = process.env.REALTIME_URL || 'http://localhost:1234';
-
-// GET /api/mindmaps/:id/versions
-export async function listVersions(req, res) {
-  try {
-    const { id } = req.params;
-
-    const role = await checkMindmapAccess(req.user.id, id, 'read');
-    if (!role) return res.status(403).json({ message: 'Permission denied' });
-
-    const versions = await Version.find({ mindmapId: id })
-      .sort({ createdAt: -1 })
-      .select('-snapshot')
-      .populate('userId', 'email name')
-      .lean();
-
-    res.json({ ok: true, versions });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-}
-
-// GET /api/mindmaps/:id/versions/:versionId
-export async function getVersion(req, res) {
-  try {
-    const { id, versionId } = req.params;
-
-    const role = await checkMindmapAccess(req.user.id, id, 'read');
-    if (!role) return res.status(403).json({ message: 'Permission denied' });
-
-    const version = await Version.findById(versionId)
-      .populate('userId', 'name email')
-      .lean();
-
-    if (!version) return res.status(404).json({ message: 'Version not found' });
-
-    if (version.mindmapId.toString() !== id) {
-      return res.status(403).json({ message: 'Version does not belong to this mindmap' });
-    }
-
-    res.json({
-      ok: true,
-      version: {
-        id: version._id,
-        snapshot: version.snapshot,
-        type: version.type,
-        label: version.label,
-        createdAt: version.createdAt,
-        size: version.size,
-        user: version.userId
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-}
 
 // POST /api/mindmaps/:id/versions/:versionId/restore
 export async function restoreVersion(req, res) {
@@ -89,17 +34,45 @@ export async function restoreVersion(req, res) {
 
     console.log('✅ Mindmap found:', mindmap.ydocId);
     console.log('✅ Version found:', version.label || version.type);
+    console.log('📦 Version snapshot type:', typeof version.snapshot);
+    console.log('📦 Has encodedState:', !!version.snapshot?.encodedState);
 
-    // 3️⃣ 🔥 CRITICAL FIX: Update Mindmap.snapshot BEFORE calling Realtime
-    // This ensures if auto-save runs, it won't overwrite with old data
-    const restoreBuffer = Buffer.from(version.snapshot.encodedState, 'base64');
+    // 3️⃣ 🔥 Prepare snapshot for Realtime
+    let snapshotToSend;
+    
+    if (version.snapshot?.encodedState) {
+      // New format: already has encodedState
+      console.log('✅ Using new format (snapshot.encodedState)');
+      snapshotToSend = {
+        schemaVersion: version.snapshot.schemaVersion || 1,
+        encodedState: version.snapshot.encodedState,
+        meta: version.snapshot.meta || {},
+        createdAt: version.snapshot.createdAt || version.createdAt
+      };
+    } else if (Buffer.isBuffer(version.snapshot)) {
+      // Old format: convert Buffer to base64
+      console.log('⚠️ Converting old format (Buffer) to base64');
+      snapshotToSend = {
+        schemaVersion: 1,
+        encodedState: version.snapshot.toString('base64'),
+        meta: { convertedFrom: 'buffer' },
+        createdAt: version.createdAt
+      };
+    } else {
+      throw new Error('Invalid snapshot format');
+    }
+
+    console.log('📊 Prepared snapshot:');
+    console.log('   Schema:', snapshotToSend.schemaVersion);
+    console.log('   EncodedState length:', snapshotToSend.encodedState?.length || 0);
+
+    // 4️⃣ Update Mindmap.snapshot (for persistence)
+    const restoreBuffer = Buffer.from(snapshotToSend.encodedState, 'base64');
     mindmap.snapshot = restoreBuffer;
     await mindmap.save();
-    
-    console.log('✅ Mindmap.snapshot updated with restored data');
-    console.log('   Buffer length:', restoreBuffer.length);
+    console.log('✅ Mindmap.snapshot updated (length:', restoreBuffer.length, 'bytes)');
 
-    // 4️⃣ Create backup of current state (from Realtime)
+    // 5️⃣ Backup current state
     try {
       const currentSnapshotRes = await axios.get(
         `${REALTIME_URL}/api/internal/mindmaps/${mindmap.ydocId}/snapshot`,
@@ -110,7 +83,7 @@ export async function restoreVersion(req, res) {
       );
       const currentSnapshot = currentSnapshotRes.data.snapshot;
       
-      if (currentSnapshot && currentSnapshot.encodedState !== version.snapshot.encodedState) {
+      if (currentSnapshot && currentSnapshot.encodedState !== snapshotToSend.encodedState) {
         await Version.create({
           mindmapId: id,
           snapshot: currentSnapshot,
@@ -122,22 +95,21 @@ export async function restoreVersion(req, res) {
         console.log('✅ Current state backed up');
       }
     } catch (backupErr) {
-      console.warn('⚠️ Failed to backup current state:', backupErr.message);
+      console.warn('⚠️ Failed to backup:', backupErr.message);
     }
 
-    // 5️⃣ Create restore record
+    // 6️⃣ Create restore record
     const restoreRecord = await Version.create({
       mindmapId: id,
-      snapshot: version.snapshot,
+      snapshot: snapshotToSend,
       userId: req.user.id,
       type: 'restore',
       label: `Restored from ${new Date(version.createdAt).toLocaleString()}`,
-      size: version.size || 0
+      size: Buffer.byteLength(snapshotToSend.encodedState, 'base64')
     });
-
     console.log('✅ Restore record created:', restoreRecord._id);
 
-    // 6️⃣ Audit log
+    // 7️⃣ Audit log
     await AuditLog.create({
       mindmapId: id,
       userId: req.user.id,
@@ -145,27 +117,46 @@ export async function restoreVersion(req, res) {
       detail: { versionId, restoredFrom: version.createdAt, label: version.label }
     });
 
-    // 7️⃣ 🔥 APPLY SNAPSHOT TO REALTIME (This will disconnect all clients)
-    console.log('📡 Calling Realtime server to apply snapshot...');
+    // 8️⃣ 🔥 BROADCAST TO REALTIME (This updates all clients via Yjs!)
+    console.log('📡 Broadcasting restore to Realtime...');
+    console.log('   URL:', `${REALTIME_URL}/broadcast-restore`);
+    console.log('   ydocId:', mindmap.ydocId);
+    console.log('   Token:', process.env.REALTIME_SERVICE_TOKEN ? 'Present' : 'MISSING!');
     
     try {
-      await axios.post(
-        `${REALTIME_URL}/apply-snapshot`,
-        { ydocId: mindmap.ydocId, snapshot: version.snapshot },
+      const broadcastPayload = {
+        ydocId: mindmap.ydocId,
+        snapshot: snapshotToSend
+      };
+      
+      console.log('📤 Payload:');
+      console.log('   ydocId:', broadcastPayload.ydocId);
+      console.log('   snapshot.encodedState length:', broadcastPayload.snapshot.encodedState.length);
+      
+      const broadcastRes = await axios.post(
+        `${REALTIME_URL}/broadcast-restore`,
+        broadcastPayload,
         { 
-          headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN || "super_secure_internal_token_xyz123" }, 
+          headers: { 
+            'x-service-token': process.env.REALTIME_SERVICE_TOKEN,
+            'Content-Type': 'application/json'
+          },
           timeout: 10000 
         }
       );
       
-      console.log('✅ Realtime server applied snapshot successfully');
+      console.log('✅ Broadcast successful:', broadcastRes.data);
+      console.log('   Clients notified:', broadcastRes.data.clientsNotified);
+      console.log('   Restored nodes:', broadcastRes.data.restored?.nodes);
       
     } catch (realtimeErr) {
-      console.error('❌ Realtime apply failed:', realtimeErr.message);
+      console.error('❌ Broadcast failed!');
+      console.error('   Status:', realtimeErr.response?.status);
+      console.error('   Message:', realtimeErr.response?.data?.message || realtimeErr.message);
+      console.error('   Full error:', realtimeErr.response?.data);
       
-      // Even if Realtime fails, Mindmap.snapshot is already updated
-      // So next client connection will load correct data
-      console.log('⚠️ But Mindmap.snapshot is already updated, clients will load correct data');
+      // Don't fail the whole restore, just warn
+      console.warn('⚠️ Restore saved but broadcast failed - clients need manual refresh');
     }
 
     console.log('========================================');
@@ -175,7 +166,10 @@ export async function restoreVersion(req, res) {
     res.json({
       ok: true,
       message: 'Version restored successfully',
-      version: { id: restoreRecord._id, createdAt: restoreRecord.createdAt }
+      version: { 
+        id: restoreRecord._id, 
+        createdAt: restoreRecord.createdAt 
+      }
     });
 
   } catch (err) {
@@ -183,7 +177,6 @@ export async function restoreVersion(req, res) {
     res.status(500).json({ message: err.message });
   }
 }
-
 
 // POST /api/mindmaps/:id/versions/save
 export async function saveManualVersion(req, res) {
@@ -194,89 +187,37 @@ export async function saveManualVersion(req, res) {
     console.log('\n========================================');
     console.log('📦 SAVE MANUAL VERSION - START');
     console.log('========================================');
-    console.log('Mindmap ID:', id);
-    console.log('Label:', label);
-    console.log('User:', req.user.id);
 
     const role = await checkMindmapAccess(req.user.id, id, 'write');
-    if (!role) {
-      console.log('❌ Permission denied');
-      return res.status(403).json({ message: 'Permission denied' });
-    }
+    if (!role) return res.status(403).json({ message: 'Permission denied' });
 
     const mindmap = await Mindmap.findById(id);
-    if (!mindmap) {
-      console.log('❌ Mindmap not found');
-      return res.status(404).json({ message: 'Mindmap not found' });
-    }
+    if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
 
-    console.log('✅ Mindmap found:', mindmap.ydocId);
-
-    // Get current state from Realtime Server
-    let snapshot;
-    try {
-      const realtimeUrl = `${REALTIME_URL}/api/internal/mindmaps/${mindmap.ydocId}/snapshot`;
-      console.log('📡 Fetching from:', realtimeUrl);
-      
-      const realtimeRes = await axios.get(realtimeUrl, {
-        headers: {
-          'x-service-token': process.env.REALTIME_SERVICE_TOKEN
-        },
+    // Get current state from Realtime
+    const realtimeRes = await axios.get(
+      `${REALTIME_URL}/api/internal/mindmaps/${mindmap.ydocId}/snapshot`,
+      {
+        headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN },
         timeout: 5000
-      });
-
-      snapshot = realtimeRes.data.snapshot;
-      
-      console.log('✅ Snapshot received:');
-      console.log('   Schema version:', snapshot.schemaVersion);
-      console.log('   Encoded state length:', snapshot.encodedState?.length || 0);
-      console.log('   Meta:', snapshot.meta);
-      
-      // 🔥 DECODE AND LOG ACTUAL CONTENT
-      const buffer = Buffer.from(snapshot.encodedState, 'base64');
-      const tempDoc = new Y.Doc();
-      Y.applyUpdate(tempDoc, buffer);
-      
-      const nodes = tempDoc.getMap('nodes');
-      const edges = tempDoc.getArray('edges');
-      
-      console.log('   📊 CONTENT:');
-      console.log('      Nodes:', nodes.size);
-      nodes.forEach((value, key) => {
-        console.log(`         ${key}: ${value.label}`);
-      });
-      console.log('      Edges:', edges.length);
-
-      if (!snapshot || !snapshot.encodedState) {
-        throw new Error('Invalid snapshot');
       }
+    );
 
-    } catch (realtimeErr) {
-      console.error('❌ Failed to get snapshot:', realtimeErr.message);
-      return res.status(500).json({ 
-        message: 'Failed to get current state',
-        detail: realtimeErr.message 
-      });
-    }
+    const snapshot = realtimeRes.data.snapshot;
 
-    // Save to Version collection
+    // Save version
     const version = await Version.create({
       mindmapId: id,
       snapshot,
       userId: req.user.id,
       type: 'manual',
       label: label || `Manual save ${new Date().toLocaleString()}`,
-      size: snapshot.encodedState ? Buffer.byteLength(snapshot.encodedState, 'base64') : 0
+      size: Buffer.byteLength(snapshot.encodedState, 'base64')
     });
 
-    console.log('✅ Version saved to DB:', version._id);
-
-    // 🔥 CRITICAL: Save to Mindmap.snapshot for persistence
+    // Update Mindmap.snapshot
     mindmap.snapshot = Buffer.from(snapshot.encodedState, 'base64');
     await mindmap.save();
-    
-    console.log('✅ Mindmap.snapshot updated');
-    console.log('   Buffer length:', mindmap.snapshot.length);
 
     await AuditLog.create({
       mindmapId: id,
@@ -285,8 +226,7 @@ export async function saveManualVersion(req, res) {
       detail: { versionId: version._id, label: version.label }
     });
 
-    console.log('========================================');
-    console.log('✅ SAVE MANUAL VERSION - COMPLETE');
+    console.log('✅ Version saved:', version._id);
     console.log('========================================\n');
 
     res.json({
@@ -300,7 +240,59 @@ export async function saveManualVersion(req, res) {
     });
 
   } catch (err) {
-    console.error('❌ Save manual version error:', err);
+    console.error('❌ Save version error:', err);
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// GET /api/mindmaps/:id/versions
+export async function listVersions(req, res) {
+  try {
+    const { id } = req.params;
+    const role = await checkMindmapAccess(req.user.id, id, 'read');
+    if (!role) return res.status(403).json({ message: 'Permission denied' });
+
+    const versions = await Version.find({ mindmapId: id })
+      .sort({ createdAt: -1 })
+      .select('-snapshot')
+      .populate('userId', 'email name')
+      .lean();
+
+    res.json({ ok: true, versions });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// GET /api/mindmaps/:id/versions/:versionId
+export async function getVersion(req, res) {
+  try {
+    const { id, versionId } = req.params;
+    const role = await checkMindmapAccess(req.user.id, id, 'read');
+    if (!role) return res.status(403).json({ message: 'Permission denied' });
+
+    const version = await Version.findById(versionId)
+      .populate('userId', 'name email')
+      .lean();
+
+    if (!version) return res.status(404).json({ message: 'Version not found' });
+    if (version.mindmapId.toString() !== id) {
+      return res.status(403).json({ message: 'Version does not belong to this mindmap' });
+    }
+
+    res.json({
+      ok: true,
+      version: {
+        id: version._id,
+        snapshot: version.snapshot,
+        type: version.type,
+        label: version.label,
+        createdAt: version.createdAt,
+        size: version.size,
+        user: version.userId
+      }
+    });
+  } catch (err) {
     res.status(500).json({ message: err.message });
   }
 }

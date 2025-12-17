@@ -1,61 +1,27 @@
-// Frontend/src/lib/yjs.js - FIXED VERSION
+// Frontend/src/lib/yjs.js - NO IndexedDB, WebSocket Only
+
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import { IndexeddbPersistence } from 'y-indexeddb'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:1234'
 
 /**
- * 🔥 CRITICAL FIX: Delete IndexedDB and WAIT before creating providers
- */
-async function clearIndexedDBSync(ydocId) {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      resolve()
-      return
-    }
-
-    const dbName = `y-indexeddb-${ydocId}`
-    const deleteRequest = window.indexedDB.deleteDatabase(dbName)
-    
-    deleteRequest.onsuccess = () => {
-      console.log(`✅ IndexedDB cleared: ${dbName}`)
-      resolve()
-    }
-    
-    deleteRequest.onerror = () => {
-      console.warn(`⚠️  Failed to clear IndexedDB: ${dbName}`)
-      resolve() // Continue anyway
-    }
-    
-    deleteRequest.onblocked = () => {
-      console.warn(`⚠️  IndexedDB delete blocked: ${dbName}`)
-      // Force resolve after timeout
-      setTimeout(() => resolve(), 1000)
-    }
-  })
-}
-
-/**
- * Create Yjs provider with proper cleanup
- * 🔥 NOW ASYNC to ensure IndexedDB is cleared first
+ * Create Yjs provider WITHOUT IndexedDB
+ * Only WebSocket for real-time sync
  */
 export async function createYjsProvider(ydocId, token) {
+  console.log('\n========================================')
+  console.log('🔌 CREATE YJS PROVIDER')
+  console.log('========================================')
+  console.log('Document ID:', ydocId)
+  console.log('Mode: WebSocket ONLY (no IndexedDB)')
+  
+  // Create Y.Doc
   const ydoc = new Y.Doc()
+  console.log('✅ Y.Doc created')
   
-  // 🔥 STEP 1: Clear IndexedDB FIRST and WAIT
-  console.log('🗑️  Clearing IndexedDB for:', ydocId)
-  await clearIndexedDBSync(ydocId)
-  console.log('✅ IndexedDB cleared, creating providers...')
-  
-  // 🔥 STEP 2: NOW create IndexedDB persistence (will be empty)
-  const indexeddbProvider = new IndexeddbPersistence(ydocId, ydoc)
-  
-  // 🔥 STEP 3: Wait for IndexedDB to be ready
-  await indexeddbProvider.whenSynced
-  console.log('✅ IndexedDB persistence ready')
-  
-  // 🔥 STEP 4: Create WebSocket provider (will load from server)
+  // Create WebSocket provider ONLY
+  console.log('🌐 Creating WebSocket provider...')
   const wsProvider = new WebsocketProvider(
     WS_URL,
     ydocId,
@@ -68,23 +34,48 @@ export async function createYjsProvider(ydocId, token) {
     }
   )
 
+  // Event handlers
+  wsProvider.on('status', ({ status }) => {
+    console.log(`📡 WebSocket Status: ${status}`)
+  })
+
+  wsProvider.on('sync', (isSynced) => {
+    console.log(`🔄 WebSocket Sync: ${isSynced}`)
+    if (isSynced) {
+      const nodes = ydoc.getMap('nodes')
+      const edges = ydoc.getArray('edges')
+      console.log(`   📊 Synced state: ${nodes.size} nodes, ${edges.length} edges`)
+    }
+  })
+
+  wsProvider.on('connection-error', ({ error }) => {
+    console.error('❌ WebSocket Error:', error)
+  })
+
+  wsProvider.on('connection-close', ({ event }) => {
+    console.log('🔌 WebSocket Closed:', event?.code, event?.reason || '(no reason)')
+  })
+
   const awareness = wsProvider.awareness
+
+  console.log('✅ Provider created')
+  console.log('========================================\n')
 
   return {
     ydoc,
     wsProvider,
     awareness,
-    indexeddbProvider,
     destroy: () => {
+      console.log('🔌 Destroying provider:', ydocId)
       wsProvider.destroy()
-      indexeddbProvider.destroy()
     }
   }
 }
 
 /**
- * Helper to clear IndexedDB for a specific document
+ * Helper function - no longer needed but kept for compatibility
  */
 export async function clearIndexedDB(ydocId) {
-  return clearIndexedDBSync(ydocId)
+  console.log('ℹ️  IndexedDB not used, nothing to clear')
+  return Promise.resolve()
 }

@@ -1,4 +1,5 @@
-// Realtime/server.js - FIXED RESTORE WITH LOCK
+// Realtime/server.js - FIXED: Proper Y.Doc State Replacement
+
 const http = require('http')
 const WebSocket = require('ws')
 const Y = require('yjs')
@@ -9,14 +10,11 @@ const { authenticate } = require('./utils/auth')
 const { persistence } = require('./utils/persist')
 const { CONFIG } = require('./config')
 
-// Global Map để bridge giữa API và WebSocket
+// Global state
 if (!global.mindmapDocs) {
   global.mindmapDocs = new Map()
 }
 const activeDocs = global.mindmapDocs
-
-// 🔥 NEW: Track documents being restored to prevent auto-save conflicts
-const restoringDocs = new Set()
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -24,8 +22,15 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-service-token')
   
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
-  if (req.method === 'POST' && req.url === '/apply-snapshot') return handleApplySnapshot(req, res)
-  if (req.method === 'GET' && req.url.startsWith('/api/internal/mindmaps/')) return handleGetSnapshot(req, res)
+  
+  // Route handlers
+  if (req.method === 'POST' && req.url === '/broadcast-restore') {
+    return handleBroadcastRestore(req, res)
+  }
+  
+  if (req.method === 'GET' && req.url.startsWith('/api/internal/mindmaps/')) {
+    return handleGetSnapshot(req, res)
+  }
 
   res.writeHead(404); res.end('Not Found')
 })
@@ -33,11 +38,187 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ noServer: true })
 
 // ==========================================
-// 1. API GET SNAPSHOT
+// 🔥 FIXED BROADCAST RESTORE
+// ==========================================
+async function handleBroadcastRestore(req, res) {
+  const headerToken = req.headers['x-service-token']
+  
+  console.log('\n========================================')
+  console.log('🔄 BROADCAST RESTORE REQUEST')
+  console.log('========================================')
+  
+  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
+    console.error('❌ UNAUTHORIZED')
+    return sendError(res, 403, 'Forbidden: Invalid service token')
+  }
+
+  let body = ''
+  req.on('data', chunk => { body += chunk.toString() })
+
+  req.on('end', async () => {
+    try {
+      const payload = JSON.parse(body)
+      const { ydocId, snapshot } = payload
+      
+      console.log('📋 Payload:')
+      console.log('   ydocId:', ydocId)
+      console.log('   snapshot.encodedState length:', snapshot?.encodedState?.length || 0)
+
+      // Validation
+      if (!ydocId) return sendError(res, 400, 'Missing ydocId')
+      if (!snapshot?.encodedState) return sendError(res, 400, 'Missing snapshot.encodedState')
+
+      // 1️⃣ Decode snapshot
+      console.log('\n📥 Decoding snapshot...')
+      const buffer = Buffer.from(snapshot.encodedState, 'base64')
+      const restoreUpdate = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      console.log('✅ Decoded:', restoreUpdate.length, 'bytes')
+      
+      // 2️⃣ Preview restore content
+      console.log('\n🔍 Preview restore content...')
+      const previewDoc = new Y.Doc()
+      Y.applyUpdate(previewDoc, restoreUpdate)
+      const previewNodes = previewDoc.getMap('nodes')
+      const previewEdges = previewDoc.getArray('edges')
+      
+      console.log('📊 Will restore:')
+      console.log('   Nodes:', previewNodes.size)
+      previewNodes.forEach((value, key) => {
+        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
+      })
+      console.log('   Edges:', previewEdges.length)
+
+      // 3️⃣ Get or create document
+      console.log('\n📚 Getting document...')
+      let ydoc = mapUtils.docs.get(ydocId)
+      
+      if (!ydoc) {
+        console.log('⚠️ No active document, creating new one')
+        ydoc = new Y.Doc()
+        ydoc.conns = new Set()
+        mapUtils.docs.set(ydocId, ydoc)
+        activeDocs.set(ydocId, ydoc)
+      } else {
+        console.log('✅ Found active document')
+        console.log('   Connected clients:', ydoc.conns?.size || 0)
+      }
+
+      // 4️⃣ Log current state
+      const nodes = ydoc.getMap('nodes')
+      const edges = ydoc.getArray('edges')
+      
+      console.log('\n📊 Current state (before restore):')
+      console.log('   Nodes:', nodes.size)
+      nodes.forEach((value, key) => {
+        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
+      })
+      console.log('   Edges:', edges.length)
+
+      // 5️⃣ 🔥 ALTERNATIVE APPROACH: Manual replacement
+      console.log('\n🔥 MANUALLY REPLACING STATE...')
+      
+      // Decode restore state to get actual data
+      const restoreDoc = new Y.Doc()
+      Y.applyUpdate(restoreDoc, restoreUpdate)
+      const restoreNodes = restoreDoc.getMap('nodes')
+      const restoreEdges = restoreDoc.getArray('edges')
+      
+      console.log('   📦 Restore has:', restoreNodes.size, 'nodes,', restoreEdges.length, 'edges')
+      
+      // Apply changes in ONE transaction (broadcasts to all clients)
+      ydoc.transact(() => {
+        console.log('   🗑️ Clearing current nodes...')
+        
+        // Delete all current nodes
+        const currentKeys = Array.from(nodes.keys())
+        currentKeys.forEach(key => {
+          nodes.delete(key)
+        })
+        
+        // Delete all current edges
+        const edgeCount = edges.length
+        if (edgeCount > 0) {
+          edges.delete(0, edgeCount)
+        }
+        
+        console.log('   ✅ Cleared')
+        console.log('   📥 Setting restore nodes...')
+        
+        // Set all nodes from restore
+        restoreNodes.forEach((value, key) => {
+          nodes.set(key, value)
+          console.log(`      Set ${key}: "${value.label || 'Untitled'}"`)
+        })
+        
+        // Set all edges from restore
+        restoreEdges.forEach((edge, index) => {
+          edges.push([edge])
+        })
+        
+        console.log('   ✅ Restore data applied')
+      })
+
+      // 6️⃣ Verify final state
+      console.log('\n✅ RESTORE COMPLETE')
+      console.log('📊 Final state:')
+      console.log('   Nodes:', nodes.size)
+      nodes.forEach((value, key) => {
+        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
+      })
+      console.log('   Edges:', edges.length)
+      console.log('   🌐 Broadcasted to', ydoc.conns?.size || 0, 'clients')
+      
+      // 🔥 VERIFICATION
+      if (nodes.size !== previewNodes.size) {
+        console.error('❌ VERIFICATION FAILED!')
+        console.error(`   Expected: ${previewNodes.size} nodes, Got: ${nodes.size} nodes`)
+        return sendError(res, 500, 'Restore verification failed')
+      }
+
+      // 7️⃣ Persist to backend
+      try {
+        console.log('\n💾 Persisting to backend...')
+        await persistence.writeState(ydocId, ydoc)
+        console.log('✅ Persisted')
+      } catch (persistErr) {
+        console.warn('⚠️ Persist failed:', persistErr.message)
+      }
+
+      console.log('========================================')
+      console.log('✅ BROADCAST RESTORE SUCCESS')
+      console.log('========================================\n')
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ 
+        ok: true,
+        clientsNotified: ydoc.conns?.size || 0,
+        restored: {
+          nodes: nodes.size,
+          edges: edges.length
+        }
+      }))
+
+    } catch (err) {
+      console.error('\n❌ BROADCAST RESTORE ERROR:', err)
+      console.error('   Message:', err.message)
+      console.error('   Stack:', err.stack)
+      sendError(res, 500, 'Internal error: ' + err.message)
+    }
+  })
+
+  req.on('error', (err) => {
+    console.error('❌ Request error:', err)
+  })
+}
+
+// ==========================================
+// GET SNAPSHOT
 // ==========================================
 async function handleGetSnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
-  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) return sendError(res, 403, 'Forbidden')
+  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
+    return sendError(res, 403, 'Forbidden')
+  }
 
   try {
     const ydocId = req.url.split('/')[4]
@@ -45,192 +226,64 @@ async function handleGetSnapshot(req, res) {
 
     console.log(`\n📦 GET SNAPSHOT: ${ydocId}`)
     
-    // Check if document is being restored
-    if (restoringDocs.has(ydocId)) {
-      console.log('⚠️ Document is being restored, returning minimal snapshot')
-      // Return empty snapshot to avoid serving stale data
-      return res.writeHead(404, { 'Content-Type': 'application/json' }) && res.end(JSON.stringify({ message: 'Document is being restored' }))
-    }
-    
-    // Find in Global Map
-    let ydoc = activeDocs.get(ydocId)
-    
-    // Fallback: Find in Library Map
-    if (!ydoc && mapUtils.docs.has(ydocId)) {
-       console.log(`   Found in Library Map (Fallback)`)
-       ydoc = mapUtils.docs.get(ydocId)
-       activeDocs.set(ydocId, ydoc)
-    }
+    let ydoc = activeDocs.get(ydocId) || mapUtils.docs.get(ydocId)
 
-    // Persistence
     if (!ydoc) {
-      console.log(`⚠️ Doc not found in RAM`)
+      console.log(`⚠️ Doc not in memory, loading from persistence`)
       ydoc = new Y.Doc()
       try {
         await persistence.bindState(ydocId, ydoc)
-      } catch (e) {}
-    } else {
-       console.log(`✅ Found active session!`)
+      } catch (e) {
+        console.log('⚠️ Persistence load failed:', e.message)
+      }
     }
 
     const update = Y.encodeStateAsUpdate(ydoc)
     const encodedState = Buffer.from(update).toString('base64')
     const nodeCount = ydoc.getMap('nodes').size
 
-    console.log(`✅ Result: ${nodeCount} nodes`)
+    console.log(`✅ Returning ${nodeCount} nodes`)
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       snapshot: {
         schemaVersion: 1,
         encodedState,
-        meta: { createdBy: 'realtime', clientCount: 0 },
+        meta: { createdBy: 'realtime', clientCount: ydoc.conns?.size || 0 },
         stats: { nodes: nodeCount },
         createdAt: new Date().toISOString()
       }
     }))
 
   } catch (err) {
-    console.error(err)
+    console.error('❌ Get snapshot error:', err)
     sendError(res, 500, err.message)
   }
 }
 
 // ==========================================
-// 2. API RESTORE (FIXED WITH LOCK)
-// ==========================================
-async function handleApplySnapshot(req, res) {
-  const headerToken = req.headers['x-service-token']
-  if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) return sendError(res, 403, 'Forbidden')
-
-  let body = ''
-  req.on('data', chunk => { body += chunk.toString() })
-
-  req.on('end', async () => {
-    try {
-      const { ydocId, snapshot } = JSON.parse(body)
-      console.log(`\n📦 RESTORE SNAPSHOT: ${ydocId}`)
-
-      if (!snapshot || !snapshot.encodedState) return sendError(res, 400, 'No data')
-
-      // 🔥 STEP 0: SET RESTORE LOCK
-      console.log('🔒 Setting restore lock...')
-      restoringDocs.add(ydocId)
-
-      // 1. Prepare data from Snapshot
-      let binaryData
-      try {
-        const buffer = Buffer.from(snapshot.encodedState, 'base64')
-        binaryData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-      } catch (e) {
-        restoringDocs.delete(ydocId)
-        return sendError(res, 400, 'Invalid Base64')
-      }
-
-      // 2. 🔥 FORCE DISCONNECT ALL OLD CLIENTS
-      if (mapUtils.docs.has(ydocId)) {
-        const oldRoom = mapUtils.docs.get(ydocId)
-        console.log(`   🔌 Disconnecting ${oldRoom.conns?.size || 0} active clients...`)
-        
-        if (oldRoom.conns) {
-          oldRoom.conns.forEach(conn => {
-            try {
-              if (conn.readyState === 1) { // WebSocket.OPEN
-                conn.close(1000, 'Restore complete')
-              }
-            } catch(e) {
-              console.error('   Failed to close connection:', e)
-            }
-          })
-        }
-        
-        // Remove old doc
-        mapUtils.docs.delete(ydocId)
-      }
-      
-      activeDocs.delete(ydocId)
-
-      // 3. ✨ CREATE FRESH DOC
-      const newDoc = new Y.Doc()
-      const newRoom = newDoc
-      newRoom.conns = new Set()
-      
-      // 4. Apply snapshot
-      try {
-        Y.applyUpdate(newDoc, binaryData)
-        console.log(`   ✅ Snapshot applied to FRESH doc (${newDoc.getMap('nodes').size} nodes)`)
-      } catch (e) {
-        console.error('   ❌ Snapshot Data is corrupted:', e.message)
-        restoringDocs.delete(ydocId)
-        return sendError(res, 400, 'Snapshot data corrupted')
-      }
-
-      // 5. Register new doc
-      mapUtils.docs.set(ydocId, newRoom)
-      activeDocs.set(ydocId, newRoom)
-
-      // 6. 🔥 SAVE TO PERSISTENCE (Backend's Mindmap.snapshot is already updated)
-      // We save here to ensure Realtime's persistence is also updated
-      try {
-        await persistence.writeState(ydocId, newDoc)
-        console.log('   ✅ Persisted to backend')
-      } catch (e) {
-        console.warn('   ⚠️ Failed to persist:', e.message)
-      }
-
-      // 7. 🔥 RELEASE RESTORE LOCK after delay
-      // This gives time for clients to fully disconnect before accepting new connections
-      setTimeout(() => {
-        restoringDocs.delete(ydocId)
-        console.log('🔓 Restore lock released for:', ydocId)
-      }, 2000)
-
-      console.log(`   ✅ Restore Complete. Fresh doc ready for new connections.`)
-
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true }))
-
-    } catch (err) {
-      console.error('❌ Restore Fatal Error:', err)
-      
-      // Clean up lock on error
-      const { ydocId } = JSON.parse(body || '{}')
-      if (ydocId) restoringDocs.delete(ydocId)
-      
-      sendError(res, 500, err.message)
-    }
-  })
-}
-
-// ==========================================
-// 3. SETUP CONNECTION
+// WEBSOCKET CONNECTION
 // ==========================================
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
-  
-  // 🔥 CHECK RESTORE LOCK
-  if (restoringDocs.has(docName)) {
-    console.log(`⚠️ Rejecting connection - ${docName} is being restored`)
-    ws.close(1013, 'Document is being restored, please reconnect in a moment')
-    return
-  }
   
   setupWSConnection(ws, req, options)
 
   const room = mapUtils.docs.get(docName)
   if (room) {
     activeDocs.set(docName, room)
-    
-    console.log(`📡 CONNECTED: ${docName} (Global map synced)`)
+    console.log(`📡 CONNECTED: ${docName} (${room.conns?.size || 0} total clients)`)
     
     ws.on('close', () => {
-      if (room.conns.size === 0) {
+      console.log(`❌ DISCONNECTED: ${docName} (${room.conns?.size || 0} remaining)`)
+      
+      if (room.conns?.size === 0) {
         setTimeout(() => {
           const check = mapUtils.docs.get(docName)
-          if (!check || check.conns.size === 0) {
-             activeDocs.delete(docName)
-             mapUtils.docs.delete(docName)
-             console.log(`🗑️ GC: ${docName}`)
+          if (!check || check.conns?.size === 0) {
+            activeDocs.delete(docName)
+            mapUtils.docs.delete(docName)
+            console.log(`🗑️ GC: ${docName} (no clients for 30s)`)
           }
         }, 30000)
       }
@@ -239,7 +292,7 @@ function setupWSConnectionWithTracking(ws, req, options) {
 }
 
 // ==========================================
-// 4. SERVER INIT
+// SERVER INIT
 // ==========================================
 server.on('upgrade', async (req, socket, head) => {
   try {
@@ -259,6 +312,7 @@ server.on('upgrade', async (req, socket, head) => {
       })
     })
   } catch (err) {
+    console.error('❌ Upgrade error:', err)
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
     socket.destroy()
   }
@@ -266,9 +320,15 @@ server.on('upgrade', async (req, socket, head) => {
 
 function sendError(res, status, msg) {
   res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify({ message: msg }))
+  res.end(JSON.stringify({ ok: false, message: msg }))
 }
 
 server.listen(CONFIG.PORT, () => {
-  console.log(`🚀 Realtime Server running at ws://localhost:${CONFIG.PORT}`)
+  console.log('\n========================================')
+  console.log('🚀 Realtime Server Started')
+  console.log('========================================')
+  console.log('   URL:', `ws://localhost:${CONFIG.PORT}`)
+  console.log('   Backend:', CONFIG.BACKEND_URL)
+  console.log('   Service Token:', CONFIG.SERVICE_TOKEN ? '✅ SET' : '❌ NOT SET')
+  console.log('========================================\n')
 })
