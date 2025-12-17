@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/VersionHistoryModal.jsx - FINAL FIX
+// Frontend/src/components/mindmap/VersionHistoryModal.jsx - FIXED RESTORE
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
@@ -25,98 +25,112 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
     mutationFn: async (versionId) => {
       console.log('🔄 Starting restore process...')
       
-      // Call backend restore API
+      // 1. Call backend restore API
       const result = await versionService.restoreVersion(mindmapId, versionId)
       console.log('✅ Backend restore complete')
       
       return result
     },
     onSuccess: async (data) => {
-      console.log('✅ Restore API successful, beginning cleanup...')
+      console.log('✅ Restore mutation successful')
       
       // Close modals immediately
       setShowRestoreConfirm(false)
       setSelectedVersion(null)
       onClose()
       
-      // Show loading toast
-      const toastId = 'restore-toast-' + Date.now()
+      // Show persistent loading toast
+      const toastContainer = document.createElement('div')
+      toastContainer.id = 'restore-toast-container'
+      toastContainer.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 9999;'
+      
       const toast = document.createElement('div')
-      toast.id = toastId
-      toast.className = 'fixed bottom-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100] animate-slide-up'
+      toast.className = 'bg-white rounded-xl shadow-2xl p-6 min-w-[300px]'
       toast.innerHTML = `
-        <div class="flex items-center space-x-3">
-          <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          <span>Applying restored version...</span>
+        <div class="flex flex-col items-center space-y-4">
+          <div class="w-16 h-16 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+          <div class="text-center">
+            <h3 class="text-lg font-bold text-gray-900 mb-1">Restoring Version</h3>
+            <p class="text-sm text-gray-600">Please wait, do not close this tab...</p>
+          </div>
         </div>
       `
-      document.body.appendChild(toast)
+      toastContainer.appendChild(toast)
+      document.body.appendChild(toastContainer)
       
       try {
-        // 🔥 STEP 1: Get mindmap ydocId
+        // 2. Get mindmap ydocId
         const mindmap = queryClient.getQueryData(['mindmap', mindmapId])
         if (!mindmap?.ydocId) {
           throw new Error('Mindmap data not found')
         }
         
-        console.log('🗑️  Clearing IndexedDB for:', mindmap.ydocId)
+        console.log('🗑️ Clearing IndexedDB for:', mindmap.ydocId)
         
-        // 🔥 STEP 2: Clear IndexedDB cache (CRITICAL!)
+        // 3. Clear IndexedDB cache (CRITICAL!)
         await clearIndexedDB(mindmap.ydocId)
         console.log('✅ IndexedDB cleared')
         
-        // 🔥 STEP 3: Wait for backend + realtime to fully sync
+        // 4. Wait for Realtime server to fully apply snapshot
         // This gives time for:
-        // - Backend to save restore record
-        // - Realtime to apply snapshot and save to persistence
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        // - Backend to update Mindmap.snapshot
+        // - Realtime to disconnect old clients
+        // - Realtime to apply new snapshot
+        console.log('⏳ Waiting for sync (3s)...')
+        await new Promise(resolve => setTimeout(resolve, 3000))
         
-        // Update toast
-        const existingToast = document.getElementById(toastId)
-        if (existingToast) {
-          existingToast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
-          existingToast.innerHTML = `
-            <div class="flex items-center space-x-3">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-              <span>Restore complete! Reloading...</span>
-            </div>
-          `
-        }
-        
-        // 🔥 STEP 4: Invalidate queries
+        // 5. Invalidate queries
         await queryClient.invalidateQueries(['versions', mindmapId])
         await queryClient.invalidateQueries(['mindmap', mindmapId])
         
-        // 🔥 STEP 5: Hard reload to force fresh connection
+        console.log('✅ All cleanup complete')
+        
+        // 6. Show success message briefly
+        toast.innerHTML = `
+          <div class="flex flex-col items-center space-y-4">
+            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+              <svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div class="text-center">
+              <h3 class="text-lg font-bold text-gray-900 mb-1">Restore Complete!</h3>
+              <p class="text-sm text-gray-600">Reloading page...</p>
+            </div>
+          </div>
+        `
+        
+        // 7. Reload after short delay
         setTimeout(() => {
           console.log('🔄 Performing hard reload...')
           window.location.reload()
-        }, 1000)
+        }, 1500)
         
       } catch (error) {
-        console.error('❌ Cleanup error:', error)
+        console.error('❌ Restore error:', error)
         
-        // Show error
-        const existingToast = document.getElementById(toastId)
-        if (existingToast) {
-          existingToast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
-          existingToast.innerHTML = `
-            <div class="flex items-center space-x-3">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span>Restore failed: ${error.message}</span>
-            </div>
-          `
-          
-          setTimeout(() => existingToast.remove(), 5000)
-        }
+        // Remove loading toast
+        const container = document.getElementById('restore-toast-container')
+        if (container) container.remove()
+        
+        // Show error toast
+        const errorToast = document.createElement('div')
+        errorToast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100] animate-slide-up'
+        errorToast.innerHTML = `
+          <div class="flex items-center space-x-3">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>Restore failed: ${error.message}</span>
+          </div>
+        `
+        document.body.appendChild(errorToast)
+        
+        setTimeout(() => errorToast.remove(), 5000)
       }
     },
     onError: (err) => {
-      console.error('❌ Restore failed:', err)
+      console.error('❌ Restore API failed:', err)
       
       const toast = document.createElement('div')
       toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'

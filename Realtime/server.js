@@ -1,3 +1,4 @@
+// Realtime/server.js - FIXED RESTORE WITH LOCK
 const http = require('http')
 const WebSocket = require('ws')
 const Y = require('yjs')
@@ -7,15 +8,15 @@ const { setupWSConnection } = mapUtils
 const { authenticate } = require('./utils/auth')
 const { persistence } = require('./utils/persist')
 const { CONFIG } = require('./config')
-const syncProtocol = require('y-protocols/sync')
-const awarenessProtocol = require('y-protocols/awareness')
-const encoding = require('lib0/encoding')
 
 // Global Map để bridge giữa API và WebSocket
 if (!global.mindmapDocs) {
   global.mindmapDocs = new Map()
 }
 const activeDocs = global.mindmapDocs
+
+// 🔥 NEW: Track documents being restored to prevent auto-save conflicts
+const restoringDocs = new Set()
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -32,7 +33,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ noServer: true })
 
 // ==========================================
-// 1. API GET SNAPSHOT (FIXED PROPERTY ACCESS)
+// 1. API GET SNAPSHOT
 // ==========================================
 async function handleGetSnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
@@ -44,19 +45,26 @@ async function handleGetSnapshot(req, res) {
 
     console.log(`\n📦 GET SNAPSHOT: ${ydocId}`)
     
-    // 1. Tìm trong Global Map
+    // Check if document is being restored
+    if (restoringDocs.has(ydocId)) {
+      console.log('⚠️ Document is being restored, returning minimal snapshot')
+      // Return empty snapshot to avoid serving stale data
+      return res.writeHead(404, { 'Content-Type': 'application/json' }) && res.end(JSON.stringify({ message: 'Document is being restored' }))
+    }
+    
+    // Find in Global Map
     let ydoc = activeDocs.get(ydocId)
     
-    // 2. Fallback: Tìm trong thư viện (FIXED: Không gọi .doc nữa)
+    // Fallback: Find in Library Map
     if (!ydoc && mapUtils.docs.has(ydocId)) {
        console.log(`   Found in Library Map (Fallback)`)
-       ydoc = mapUtils.docs.get(ydocId) // <--- FIX: Bản thân nó là Doc rồi
+       ydoc = mapUtils.docs.get(ydocId)
        activeDocs.set(ydocId, ydoc)
     }
 
-    // 3. Persistence
+    // Persistence
     if (!ydoc) {
-      console.log(`⚠️  Doc not found in RAM. keys: ${Array.from(activeDocs.keys())}`)
+      console.log(`⚠️ Doc not found in RAM`)
       ydoc = new Y.Doc()
       try {
         await persistence.bindState(ydocId, ydoc)
@@ -89,7 +97,7 @@ async function handleGetSnapshot(req, res) {
 }
 
 // ==========================================
-// 2. API RESTORE (CHIẾN THUẬT: ĐẬP ĐI XÂY LẠI)
+// 2. API RESTORE (FIXED WITH LOCK)
 // ==========================================
 async function handleApplySnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
@@ -105,80 +113,113 @@ async function handleApplySnapshot(req, res) {
 
       if (!snapshot || !snapshot.encodedState) return sendError(res, 400, 'No data')
 
-      // 1. Chuẩn bị data từ Snapshot (Chuyển Base64 -> Uint8Array)
+      // 🔥 STEP 0: SET RESTORE LOCK
+      console.log('🔒 Setting restore lock...')
+      restoringDocs.add(ydocId)
+
+      // 1. Prepare data from Snapshot
       let binaryData
       try {
         const buffer = Buffer.from(snapshot.encodedState, 'base64')
         binaryData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
       } catch (e) {
+        restoringDocs.delete(ydocId)
         return sendError(res, 400, 'Invalid Base64')
       }
 
-      // 2. 🔥 QUAN TRỌNG: HỦY DIỆT DOC CŨ (Destroy)
-      // Không cố merge vào doc cũ vì nó đang bị lỗi "Unexpected case"
+      // 2. 🔥 FORCE DISCONNECT ALL OLD CLIENTS
       if (mapUtils.docs.has(ydocId)) {
         const oldRoom = mapUtils.docs.get(ydocId)
-        console.log(`   ♻️  Destroying old corrupted doc...`)
+        console.log(`   🔌 Disconnecting ${oldRoom.conns?.size || 0} active clients...`)
         
-        // Ngắt kết nối toàn bộ client đang vẽ để tránh conflict
         if (oldRoom.conns) {
-            oldRoom.conns.forEach(conn => {
-                try { conn.close() } catch(e) {}
-            })
+          oldRoom.conns.forEach(conn => {
+            try {
+              if (conn.readyState === 1) { // WebSocket.OPEN
+                conn.close(1000, 'Restore complete')
+              }
+            } catch(e) {
+              console.error('   Failed to close connection:', e)
+            }
+          })
         }
         
-        // Xóa sổ khỏi bộ nhớ thư viện
+        // Remove old doc
         mapUtils.docs.delete(ydocId)
       }
       
-      // Xóa khỏi Global Map của mình
       activeDocs.delete(ydocId)
 
-      // 3. ✨ TẠO DOC MỚI TINH (Fresh Start)
+      // 3. ✨ CREATE FRESH DOC
       const newDoc = new Y.Doc()
-      const newRoom = newDoc // Trong thư viện này, Room chính là Doc
+      const newRoom = newDoc
       newRoom.conns = new Set()
       
-      // 4. Nạp dữ liệu Snapshot vào Doc mới
+      // 4. Apply snapshot
       try {
         Y.applyUpdate(newDoc, binaryData)
-        console.log(`   ✅ Snapshot applied to FRESH doc`)
+        console.log(`   ✅ Snapshot applied to FRESH doc (${newDoc.getMap('nodes').size} nodes)`)
       } catch (e) {
         console.error('   ❌ Snapshot Data is corrupted:', e.message)
+        restoringDocs.delete(ydocId)
         return sendError(res, 400, 'Snapshot data corrupted')
       }
 
-      // 5. Đăng ký lại vào các Map quản lý
+      // 5. Register new doc
       mapUtils.docs.set(ydocId, newRoom)
       activeDocs.set(ydocId, newRoom)
 
-      // 6. 🔥 GHI ĐÈ XUỐNG DB (Overwrite Persistence)
-      // Lúc này newDoc là sạch sẽ, nên writeState sẽ không bị lỗi Unexpected case nữa
-      await persistence.writeState(ydocId, newDoc)
+      // 6. 🔥 SAVE TO PERSISTENCE (Backend's Mindmap.snapshot is already updated)
+      // We save here to ensure Realtime's persistence is also updated
+      try {
+        await persistence.writeState(ydocId, newDoc)
+        console.log('   ✅ Persisted to backend')
+      } catch (e) {
+        console.warn('   ⚠️ Failed to persist:', e.message)
+      }
 
-      console.log(`   ✅ Restore Complete. Old state wiped.`)
+      // 7. 🔥 RELEASE RESTORE LOCK after delay
+      // This gives time for clients to fully disconnect before accepting new connections
+      setTimeout(() => {
+        restoringDocs.delete(ydocId)
+        console.log('🔓 Restore lock released for:', ydocId)
+      }, 2000)
+
+      console.log(`   ✅ Restore Complete. Fresh doc ready for new connections.`)
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ ok: true }))
 
     } catch (err) {
       console.error('❌ Restore Fatal Error:', err)
+      
+      // Clean up lock on error
+      const { ydocId } = JSON.parse(body || '{}')
+      if (ydocId) restoringDocs.delete(ydocId)
+      
       sendError(res, 500, err.message)
     }
   })
 }
+
 // ==========================================
-// 3. SETUP CONNECTION (FIXED PROPERTY ACCESS)
+// 3. SETUP CONNECTION
 // ==========================================
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
+  
+  // 🔥 CHECK RESTORE LOCK
+  if (restoringDocs.has(docName)) {
+    console.log(`⚠️ Rejecting connection - ${docName} is being restored`)
+    ws.close(1013, 'Document is being restored, please reconnect in a moment')
+    return
+  }
+  
   setupWSConnection(ws, req, options)
 
   const room = mapUtils.docs.get(docName)
   if (room) {
-    // FIX: room CHÍNH LÀ DOC (WSSharedDoc extends Y.Doc)
-    // Không được gọi room.doc
-    activeDocs.set(docName, room) 
+    activeDocs.set(docName, room)
     
     console.log(`📡 CONNECTED: ${docName} (Global map synced)`)
     
@@ -203,14 +244,23 @@ function setupWSConnectionWithTracking(ws, req, options) {
 server.on('upgrade', async (req, socket, head) => {
   try {
     const ctx = await authenticate(req)
-    if (!ctx.hasAccess) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return }
+    if (!ctx.hasAccess) { 
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+      socket.destroy()
+      return 
+    }
     
     wss.handleUpgrade(req, socket, head, ws => {
       ws.user = ctx.user
-      setupWSConnectionWithTracking(ws, req, { docName: ctx.docName, gc: true, persistence })
+      setupWSConnectionWithTracking(ws, req, { 
+        docName: ctx.docName, 
+        gc: true, 
+        persistence 
+      })
     })
   } catch (err) {
-    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy()
+    socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    socket.destroy()
   }
 })
 

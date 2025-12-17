@@ -68,6 +68,12 @@ export async function restoreVersion(req, res) {
   try {
     const { id, versionId } = req.params;
 
+    console.log('\n========================================');
+    console.log('🔄 RESTORE VERSION - START');
+    console.log('========================================');
+    console.log('Mindmap ID:', id);
+    console.log('Version ID:', versionId);
+
     // 1️⃣ Check access
     const role = await checkMindmapAccess(req.user.id, id, 'write');
     if (!role) return res.status(403).json({ message: 'Permission denied' });
@@ -81,14 +87,30 @@ export async function restoreVersion(req, res) {
       return res.status(404).json({ message: 'Version not found or mismatch' });
     }
 
-    // 3️⃣ Backup current state
+    console.log('✅ Mindmap found:', mindmap.ydocId);
+    console.log('✅ Version found:', version.label || version.type);
+
+    // 3️⃣ 🔥 CRITICAL FIX: Update Mindmap.snapshot BEFORE calling Realtime
+    // This ensures if auto-save runs, it won't overwrite with old data
+    const restoreBuffer = Buffer.from(version.snapshot.encodedState, 'base64');
+    mindmap.snapshot = restoreBuffer;
+    await mindmap.save();
+    
+    console.log('✅ Mindmap.snapshot updated with restored data');
+    console.log('   Buffer length:', restoreBuffer.length);
+
+    // 4️⃣ Create backup of current state (from Realtime)
     try {
       const currentSnapshotRes = await axios.get(
         `${REALTIME_URL}/api/internal/mindmaps/${mindmap.ydocId}/snapshot`,
-        { headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN }, timeout: 5000 }
+        { 
+          headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN }, 
+          timeout: 5000 
+        }
       );
       const currentSnapshot = currentSnapshotRes.data.snapshot;
-      if (currentSnapshot) {
+      
+      if (currentSnapshot && currentSnapshot.encodedState !== version.snapshot.encodedState) {
         await Version.create({
           mindmapId: id,
           snapshot: currentSnapshot,
@@ -97,12 +119,13 @@ export async function restoreVersion(req, res) {
           label: 'Auto-backup before restore',
           size: Buffer.byteLength(currentSnapshot.encodedState, 'base64')
         });
+        console.log('✅ Current state backed up');
       }
     } catch (backupErr) {
-      console.warn('⚠️ Failed to backup:', backupErr.message);
+      console.warn('⚠️ Failed to backup current state:', backupErr.message);
     }
 
-    // 4️⃣ Create restore record
+    // 5️⃣ Create restore record
     const restoreRecord = await Version.create({
       mindmapId: id,
       snapshot: version.snapshot,
@@ -112,9 +135,7 @@ export async function restoreVersion(req, res) {
       size: version.size || 0
     });
 
-    // 5️⃣ Update Mindmap.snapshot for persistence
-    mindmap.snapshot = Buffer.from(version.snapshot.encodedState, 'base64');
-    await mindmap.save();
+    console.log('✅ Restore record created:', restoreRecord._id);
 
     // 6️⃣ Audit log
     await AuditLog.create({
@@ -124,12 +145,32 @@ export async function restoreVersion(req, res) {
       detail: { versionId, restoredFrom: version.createdAt, label: version.label }
     });
 
-    // 7️⃣ Apply snapshot to Realtime server
-    await axios.post(
-      `${REALTIME_URL}/apply-snapshot`,
-      { ydocId: mindmap.ydocId, snapshot: version.snapshot },
-      { headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN }, timeout: 10000 }
-    );
+    // 7️⃣ 🔥 APPLY SNAPSHOT TO REALTIME (This will disconnect all clients)
+    console.log('📡 Calling Realtime server to apply snapshot...');
+    
+    try {
+      await axios.post(
+        `${REALTIME_URL}/apply-snapshot`,
+        { ydocId: mindmap.ydocId, snapshot: version.snapshot },
+        { 
+          headers: { 'x-service-token': process.env.REALTIME_SERVICE_TOKEN || "super_secure_internal_token_xyz123" }, 
+          timeout: 10000 
+        }
+      );
+      
+      console.log('✅ Realtime server applied snapshot successfully');
+      
+    } catch (realtimeErr) {
+      console.error('❌ Realtime apply failed:', realtimeErr.message);
+      
+      // Even if Realtime fails, Mindmap.snapshot is already updated
+      // So next client connection will load correct data
+      console.log('⚠️ But Mindmap.snapshot is already updated, clients will load correct data');
+    }
+
+    console.log('========================================');
+    console.log('✅ RESTORE VERSION - COMPLETE');
+    console.log('========================================\n');
 
     res.json({
       ok: true,

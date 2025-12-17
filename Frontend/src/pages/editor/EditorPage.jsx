@@ -1,5 +1,5 @@
-// Frontend/src/pages/editor/EditorPage.jsx - FIXED VERSION
-import { useEffect, useState } from 'react'
+// Frontend/src/pages/editor/EditorPage.jsx - FIXED RESTORE HANDLING
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ReactFlowProvider } from 'reactflow'
@@ -21,15 +21,18 @@ export default function EditorPage() {
   const [synced, setSynced] = useState(false)
   const [reconnectAttempts, setReconnectAttempts] = useState(0)
   const [isConnecting, setIsConnecting] = useState(false)
+  
+  // Track if we're in restore mode to prevent auto-reconnect
+  const isRestoring = useRef(false)
 
   const { data: mindmap, isLoading } = useQuery({
     queryKey: ['mindmap', id],
     queryFn: () => mindmapService.get(id),
   })
 
-  // 🔥 Setup Yjs Provider with ASYNC cleanup
+  // Setup Yjs Provider
   useEffect(() => {
-    if (!mindmap || !accessToken) return
+    if (!mindmap || !accessToken || isRestoring.current) return
 
     let mounted = true
     setIsConnecting(true)
@@ -38,10 +41,9 @@ export default function EditorPage() {
       console.log('🔌 Setting up Yjs Provider for:', mindmap.ydocId)
 
       try {
-        // 🔥 AWAIT the provider creation (ensures IndexedDB is cleared)
         const provider = await createYjsProvider(mindmap.ydocId, accessToken)
         
-        if (!mounted) {
+        if (!mounted || isRestoring.current) {
           provider.destroy()
           return
         }
@@ -63,22 +65,34 @@ export default function EditorPage() {
           if (status === 'connected') {
             console.log('✅ WebSocket connected')
           } else if (status === 'disconnected') {
-            console.log('⚠️  WebSocket disconnected, will retry...')
-            setReconnectAttempts(prev => prev + 1)
+            // Only log if not restoring
+            if (!isRestoring.current) {
+              console.log('⚠️ WebSocket disconnected')
+              setReconnectAttempts(prev => prev + 1)
+            }
           }
         })
 
         provider.wsProvider.on('connection-close', ({ event }) => {
           console.log('❌ WebSocket closed:', event?.code, event?.reason)
           
+          // 🔥 CRITICAL FIX: Detect restore and prevent reconnect
           if (event?.reason === 'Restore complete') {
-            console.log('🔄 Restore detected, reloading...')
-            setTimeout(() => window.location.reload(), 1000)
+            console.log('🔄 RESTORE DETECTED - Setting restore flag')
+            isRestoring.current = true
+            
+            // Destroy current provider to prevent reconnect
+            provider.destroy()
+            
+            // DON'T reload here - VersionHistoryModal handles it
+            console.log('⏳ Waiting for VersionHistoryModal to handle reload...')
           }
         })
 
         provider.wsProvider.on('connection-error', ({ error }) => {
-          console.error('❌ WebSocket error:', error)
+          if (!isRestoring.current) {
+            console.error('❌ WebSocket error:', error)
+          }
         })
 
         setYjsProvider(provider)
@@ -100,7 +114,7 @@ export default function EditorPage() {
     return () => {
       mounted = false
       console.log('🔌 Cleaning up provider')
-      if (yjsProvider) {
+      if (yjsProvider && !isRestoring.current) {
         yjsProvider.destroy()
       }
     }
@@ -112,10 +126,10 @@ export default function EditorPage() {
     return useUndoShortcuts(undoManager)
   }, [undoManager])
 
-  // Auto-reload if stuck disconnected
+  // Auto-reload if stuck disconnected (but not during restore)
   useEffect(() => {
-    if (reconnectAttempts > 5) {
-      console.log('⚠️  Too many reconnect attempts, reloading page...')
+    if (reconnectAttempts > 5 && !isRestoring.current) {
+      console.log('⚠️ Too many reconnect attempts, reloading page...')
       window.location.reload()
     }
   }, [reconnectAttempts])
@@ -141,6 +155,19 @@ export default function EditorPage() {
           <button onClick={() => navigate('/dashboard')} className="btn-primary">
             Back to Dashboard
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Show restore mode overlay
+  if (isRestoring.current) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Restoring Version</h3>
+          <p className="text-gray-600">Please wait...</p>
         </div>
       </div>
     )

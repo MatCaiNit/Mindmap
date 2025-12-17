@@ -183,6 +183,7 @@ export const getRealtimeSnapshot = async (req, res) => {
 
 // POST /api/mindmaps/:id/versions/:versionId/restore
 export const restoreSnapshot = async (req, res) => {
+  console.log("mm controller")
   const { id, versionId } = req.params;
 
   const mindmap = await Mindmap.findById(id);
