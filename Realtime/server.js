@@ -1,4 +1,4 @@
-// Realtime/server.js - FIXED: Proper Y.Doc State Replacement
+// Realtime/server.js - FINAL FIX: Proper Awareness Cleanup
 
 const http = require('http')
 const WebSocket = require('ws')
@@ -23,7 +23,6 @@ const server = http.createServer((req, res) => {
   
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
   
-  // Route handlers
   if (req.method === 'POST' && req.url === '/broadcast-restore') {
     return handleBroadcastRestore(req, res)
   }
@@ -38,17 +37,12 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ noServer: true })
 
 // ==========================================
-// 🔥 FIXED BROADCAST RESTORE
+// BROADCAST RESTORE
 // ==========================================
 async function handleBroadcastRestore(req, res) {
   const headerToken = req.headers['x-service-token']
   
-  console.log('\n========================================')
-  console.log('🔄 BROADCAST RESTORE REQUEST')
-  console.log('========================================')
-  
   if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
-    console.error('❌ UNAUTHORIZED')
     return sendError(res, 403, 'Forbidden: Invalid service token')
   }
 
@@ -59,134 +53,53 @@ async function handleBroadcastRestore(req, res) {
     try {
       const payload = JSON.parse(body)
       const { ydocId, snapshot } = payload
-      
-      console.log('📋 Payload:')
-      console.log('   ydocId:', ydocId)
-      console.log('   snapshot.encodedState length:', snapshot?.encodedState?.length || 0)
 
-      // Validation
       if (!ydocId) return sendError(res, 400, 'Missing ydocId')
       if (!snapshot?.encodedState) return sendError(res, 400, 'Missing snapshot.encodedState')
 
-      // 1️⃣ Decode snapshot
-      console.log('\n📥 Decoding snapshot...')
       const buffer = Buffer.from(snapshot.encodedState, 'base64')
       const restoreUpdate = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-      console.log('✅ Decoded:', restoreUpdate.length, 'bytes')
       
-      // 2️⃣ Preview restore content
-      console.log('\n🔍 Preview restore content...')
-      const previewDoc = new Y.Doc()
-      Y.applyUpdate(previewDoc, restoreUpdate)
-      const previewNodes = previewDoc.getMap('nodes')
-      const previewEdges = previewDoc.getArray('edges')
-      
-      console.log('📊 Will restore:')
-      console.log('   Nodes:', previewNodes.size)
-      previewNodes.forEach((value, key) => {
-        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
-      })
-      console.log('   Edges:', previewEdges.length)
-
-      // 3️⃣ Get or create document
-      console.log('\n📚 Getting document...')
       let ydoc = mapUtils.docs.get(ydocId)
       
       if (!ydoc) {
-        console.log('⚠️ No active document, creating new one')
         ydoc = new Y.Doc()
         ydoc.conns = new Set()
         mapUtils.docs.set(ydocId, ydoc)
         activeDocs.set(ydocId, ydoc)
-      } else {
-        console.log('✅ Found active document')
-        console.log('   Connected clients:', ydoc.conns?.size || 0)
       }
 
-      // 4️⃣ Log current state
       const nodes = ydoc.getMap('nodes')
       const edges = ydoc.getArray('edges')
       
-      console.log('\n📊 Current state (before restore):')
-      console.log('   Nodes:', nodes.size)
-      nodes.forEach((value, key) => {
-        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
-      })
-      console.log('   Edges:', edges.length)
-
-      // 5️⃣ 🔥 ALTERNATIVE APPROACH: Manual replacement
-      console.log('\n🔥 MANUALLY REPLACING STATE...')
-      
-      // Decode restore state to get actual data
       const restoreDoc = new Y.Doc()
       Y.applyUpdate(restoreDoc, restoreUpdate)
       const restoreNodes = restoreDoc.getMap('nodes')
       const restoreEdges = restoreDoc.getArray('edges')
       
-      console.log('   📦 Restore has:', restoreNodes.size, 'nodes,', restoreEdges.length, 'edges')
-      
-      // Apply changes in ONE transaction (broadcasts to all clients)
       ydoc.transact(() => {
-        console.log('   🗑️ Clearing current nodes...')
-        
-        // Delete all current nodes
         const currentKeys = Array.from(nodes.keys())
-        currentKeys.forEach(key => {
-          nodes.delete(key)
-        })
+        currentKeys.forEach(key => nodes.delete(key))
         
-        // Delete all current edges
         const edgeCount = edges.length
         if (edgeCount > 0) {
           edges.delete(0, edgeCount)
         }
         
-        console.log('   ✅ Cleared')
-        console.log('   📥 Setting restore nodes...')
-        
-        // Set all nodes from restore
         restoreNodes.forEach((value, key) => {
           nodes.set(key, value)
-          console.log(`      Set ${key}: "${value.label || 'Untitled'}"`)
         })
         
-        // Set all edges from restore
-        restoreEdges.forEach((edge, index) => {
+        restoreEdges.forEach((edge) => {
           edges.push([edge])
         })
-        
-        console.log('   ✅ Restore data applied')
       })
 
-      // 6️⃣ Verify final state
-      console.log('\n✅ RESTORE COMPLETE')
-      console.log('📊 Final state:')
-      console.log('   Nodes:', nodes.size)
-      nodes.forEach((value, key) => {
-        console.log(`      ${key}: "${value.label || value.data?.label || 'Untitled'}"`)
-      })
-      console.log('   Edges:', edges.length)
-      console.log('   🌐 Broadcasted to', ydoc.conns?.size || 0, 'clients')
-      
-      // 🔥 VERIFICATION
-      if (nodes.size !== previewNodes.size) {
-        console.error('❌ VERIFICATION FAILED!')
-        console.error(`   Expected: ${previewNodes.size} nodes, Got: ${nodes.size} nodes`)
-        return sendError(res, 500, 'Restore verification failed')
-      }
-
-      // 7️⃣ Persist to backend
       try {
-        console.log('\n💾 Persisting to backend...')
         await persistence.writeState(ydocId, ydoc)
-        console.log('✅ Persisted')
       } catch (persistErr) {
         console.warn('⚠️ Persist failed:', persistErr.message)
       }
-
-      console.log('========================================')
-      console.log('✅ BROADCAST RESTORE SUCCESS')
-      console.log('========================================\n')
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ 
@@ -199,15 +112,9 @@ async function handleBroadcastRestore(req, res) {
       }))
 
     } catch (err) {
-      console.error('\n❌ BROADCAST RESTORE ERROR:', err)
-      console.error('   Message:', err.message)
-      console.error('   Stack:', err.stack)
+      console.error('❌ BROADCAST RESTORE ERROR:', err)
       sendError(res, 500, 'Internal error: ' + err.message)
     }
-  })
-
-  req.on('error', (err) => {
-    console.error('❌ Request error:', err)
   })
 }
 
@@ -223,13 +130,10 @@ async function handleGetSnapshot(req, res) {
   try {
     const ydocId = req.url.split('/')[4]
     if (!ydocId) return sendError(res, 400, 'Missing ydocId')
-
-    console.log(`\n📦 GET SNAPSHOT: ${ydocId}`)
     
     let ydoc = activeDocs.get(ydocId) || mapUtils.docs.get(ydocId)
 
     if (!ydoc) {
-      console.log(`⚠️ Doc not in memory, loading from persistence`)
       ydoc = new Y.Doc()
       try {
         await persistence.bindState(ydocId, ydoc)
@@ -240,9 +144,6 @@ async function handleGetSnapshot(req, res) {
 
     const update = Y.encodeStateAsUpdate(ydoc)
     const encodedState = Buffer.from(update).toString('base64')
-    const nodeCount = ydoc.getMap('nodes').size
-
-    console.log(`✅ Returning ${nodeCount} nodes`)
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
@@ -250,7 +151,6 @@ async function handleGetSnapshot(req, res) {
         schemaVersion: 1,
         encodedState,
         meta: { createdBy: 'realtime', clientCount: ydoc.conns?.size || 0 },
-        stats: { nodes: nodeCount },
         createdAt: new Date().toISOString()
       }
     }))
@@ -262,7 +162,7 @@ async function handleGetSnapshot(req, res) {
 }
 
 // ==========================================
-// WEBSOCKET CONNECTION
+// 🔥 WEBSOCKET CONNECTION - SIMPLIFIED AWARENESS
 // ==========================================
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
@@ -275,7 +175,11 @@ function setupWSConnectionWithTracking(ws, req, options) {
     console.log(`📡 CONNECTED: ${docName} (${room.conns?.size || 0} total clients)`)
     
     ws.on('close', () => {
-      console.log(`❌ DISCONNECTED: ${docName} (${room.conns?.size || 0} remaining)`)
+      console.log(`❌ DISCONNECTING: ${docName}`)
+      console.log(`   Remaining clients: ${room.conns?.size || 0}`)
+      
+      // Let y-websocket handle awareness cleanup automatically
+      // No manual intervention needed
       
       if (room.conns?.size === 0) {
         setTimeout(() => {

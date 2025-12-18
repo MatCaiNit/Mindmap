@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/MindmapCanvas.jsx - WITH READ-ONLY MODE
+// Frontend/src/components/mindmap/MindmapCanvas.jsx - FIXED AWARENESS
 import { useEffect, useState, useCallback } from 'react'
 import ReactFlow, {
   Background,
@@ -45,23 +45,42 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
 
   const awarenessStates = useAwareness(awareness)
 
+  // 🔥 Setup awareness - Simple version (no StrictMode workaround needed)
   useEffect(() => {
     if (!awareness || !user) return
 
     const userColor = getRandomColor(user.id || user._id)
+    const userId = user.id || user._id
     
+    console.log('👤 Setting up awareness for:', user.name || user.email)
+    console.log('   Client ID:', awareness.clientID)
+    
+    // Set user info
     awareness.setLocalStateField('user', {
-      id: user.id || user._id,
+      id: userId,
       name: user.name,
       email: user.email,
       color: userColor,
     })
+    
+    // Set initial timestamp
+    awareness.setLocalStateField('lastUpdated', Date.now())
+
+    console.log('   ✅ Awareness set')
+
+    // Heartbeat to keep awareness alive
+    const heartbeatInterval = setInterval(() => {
+      awareness.setLocalStateField('lastUpdated', Date.now())
+    }, 3000)
 
     return () => {
-      awareness.setLocalStateField('user', null)
+      console.log('🧹 Cleaning up awareness for:', user.name || user.email)
+      clearInterval(heartbeatInterval)
+      awareness.setLocalState(null)
     }
-  }, [awareness, user])
+  }, [awareness, user?.id, user?.email, user?.name])
 
+  // 🔥 FIX: Update lastUpdated on mouse move
   const handleMouseMove = useCallback((event) => {
     if (!awareness) return
 
@@ -70,7 +89,10 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
     const y = event.clientY - bounds.top
 
     setMousePos({ x, y })
+    
+    // Update cursor position AND timestamp
     awareness.setLocalStateField('cursor', { x, y })
+    awareness.setLocalStateField('lastUpdated', Date.now())
   }, [awareness])
 
   // Sync Yjs → React Flow
@@ -86,9 +108,8 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
             label: value.label || '',
             color: value.color || '#3b82f6',
             yNodes,
-            isReadOnly, // Pass read-only flag to node
+            isReadOnly,
           },
-          // Disable dragging for viewers
           draggable: !isReadOnly,
         })
       })
@@ -116,7 +137,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
     }
   }, [yNodes, yEdges, isReadOnly])
 
-  // Handle node drag (disabled for read-only)
+  // Handle node drag
   const onNodeDragStop = useCallback((event, node) => {
     if (isReadOnly) return
     
@@ -129,7 +150,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
     }
   }, [yNodes, isReadOnly])
 
-  // Handle connection (disabled for read-only)
+  // Handle connection
   const onConnect = useCallback((params) => {
     if (isReadOnly) {
       console.log('⚠️ Cannot create connections in read-only mode')
@@ -145,7 +166,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
     yEdges.push([newEdge])
   }, [yEdges, isReadOnly])
 
-  // Add new node (disabled for read-only)
+  // Add new node
   const onPaneClick = useCallback((event) => {
     if (isReadOnly) return
     
@@ -223,7 +244,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
                 key={state.clientId}
                 className="w-8 h-8 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-bold"
                 style={{ backgroundColor: state.user?.color || '#3b82f6' }}
-                title={state.user?.name || state.user?.email}
+                title={`${state.user?.name || state.user?.email} (Client ${state.clientId})`}
               >
                 {(state.user?.name || state.user?.email || '?')[0].toUpperCase()}
               </div>
@@ -245,6 +266,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = f
         <div className="font-bold mb-1">State:</div>
         <div>Nodes: {yNodes.size}</div>
         <div>Edges: {yEdges.length}</div>
+        <div>Awareness: {awarenessStates.length}</div>
         {isReadOnly && <div className="text-yellow-600 font-bold mt-1">READ-ONLY</div>}
       </div>
     </div>

@@ -1,4 +1,4 @@
-// Frontend/src/pages/editor/EditorPage.jsx - WITH ROLE MANAGEMENT
+// Frontend/src/pages/editor/EditorPage.jsx - FIXED: Stable Provider Reference
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -16,7 +16,8 @@ export default function EditorPage() {
   const accessToken = useAuthStore((state) => state.accessToken)
   const currentUser = useAuthStore((state) => state.user)
   
-  const [yjsProvider, setYjsProvider] = useState(null)
+  // 🔥 FIX: Use refs to keep stable references
+  const [providerReady, setProviderReady] = useState(false)
   const [undoManager, setUndoManager] = useState(null)
   const [synced, setSynced] = useState(false)
   
@@ -28,11 +29,10 @@ export default function EditorPage() {
     queryFn: () => mindmapService.get(id),
   })
 
-  // Determine user role
   const userRole = mindmap?.access || 'viewer'
   const isViewer = userRole === 'viewer'
 
-  // Setup Yjs Provider
+  // Setup Yjs Provider - ONLY ONCE
   useEffect(() => {
     if (!mindmap || !accessToken || providerRef.current || setupInProgress.current) {
       return
@@ -49,7 +49,7 @@ export default function EditorPage() {
         const provider = await createYjsProvider(mindmap.ydocId, accessToken)
         
         providerRef.current = provider
-        setYjsProvider(provider)
+        setProviderReady(true) // ← Signal that provider is ready
 
         provider.wsProvider.on('sync', (isSynced) => {
           setSynced(isSynced)
@@ -62,7 +62,6 @@ export default function EditorPage() {
           console.log('📡 WebSocket status:', status)
         })
 
-        // Setup Undo Manager (but it will be disabled for viewers in UI)
         const undo = createUndoManager(provider.ydoc)
         setUndoManager(undo)
         
@@ -83,10 +82,10 @@ export default function EditorPage() {
         providerRef.current = null
       }
       setupInProgress.current = false
+      setProviderReady(false)
     }
   }, [mindmap?.ydocId, accessToken])
 
-  // Bind keyboard shortcuts (disabled for viewers)
   useEffect(() => {
     if (!undoManager || isViewer) return
     return useUndoShortcuts(undoManager)
@@ -118,7 +117,6 @@ export default function EditorPage() {
     )
   }
 
-  // Enhance mindmap with currentUserId for CollaboratorsTab
   const enhancedMindmap = {
     ...mindmap,
     currentUserId: currentUser?.id || currentUser?._id
@@ -126,7 +124,6 @@ export default function EditorPage() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      {/* Toolbar */}
       <EditorToolbar 
         mindmap={enhancedMindmap}
         synced={synced}
@@ -135,13 +132,13 @@ export default function EditorPage() {
         userRole={userRole}
       />
 
-      {/* Canvas */}
       <div className="flex-1 relative">
-        {yjsProvider ? (
+        {/* 🔥 FIX: Only render when provider is ready AND use stable ref */}
+        {providerReady && providerRef.current ? (
           <ReactFlowProvider>
             <MindmapCanvas 
-              ydoc={yjsProvider.ydoc}
-              awareness={yjsProvider.awareness}
+              ydoc={providerRef.current.ydoc}
+              awareness={providerRef.current.awareness}
               mindmap={enhancedMindmap}
               isReadOnly={isViewer}
             />
