@@ -1,5 +1,4 @@
-// Frontend/src/components/mindmap/VersionHistoryModal.jsx - Stay Open During Restore
-
+// Frontend/src/components/mindmap/VersionHistoryModal.jsx - WITH ROLE CHECK
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
@@ -8,10 +7,11 @@ import {
   ClockIcon,
   ArrowPathIcon,
   CheckCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  LockClosedIcon
 } from '@heroicons/react/24/outline'
 
-export default function VersionHistoryModal({ mindmapId, onClose }) {
+export default function VersionHistoryModal({ mindmapId, onClose, canRestore = false }) {
   const [selectedVersion, setSelectedVersion] = useState(null)
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false)
   const queryClient = useQueryClient()
@@ -23,27 +23,13 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
 
   const restoreMutation = useMutation({
     mutationFn: async (versionId) => {
-      console.log('\n========================================')
-      console.log('🔄 FRONTEND: RESTORE START')
-      console.log('========================================')
-      console.log('Version ID:', versionId)
-      
-      const result = await versionService.restoreVersion(mindmapId, versionId)
-      
-      console.log('✅ Backend restore complete:', result)
-      console.log('========================================\n')
-      
-      return result
+      return versionService.restoreVersion(mindmapId, versionId)
     },
     onSuccess: async () => {
-      console.log('✅ Restore mutation success')
-      
-      // 🔥 CRITICAL: Close confirm dialog but KEEP main modal open
       setShowRestoreConfirm(false)
       setSelectedVersion(null)
-      // DO NOT call onClose() here!
       
-      // Show success toast
+      // Success toast
       const toast = document.createElement('div')
       toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100] animate-slide-up'
       toast.innerHTML = `
@@ -58,17 +44,11 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
         </div>
       `
       document.body.appendChild(toast)
-      
       setTimeout(() => toast.remove(), 3000)
       
-      // Refresh version list
       await queryClient.invalidateQueries(['versions', mindmapId])
-      
-      console.log('✅ UI updated, Yjs will sync automatically...')
     },
     onError: (err) => {
-      console.error('❌ Restore failed:', err)
-      
       const toast = document.createElement('div')
       toast.className = 'fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-[100]'
       toast.innerHTML = `
@@ -80,7 +60,6 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
         </div>
       `
       document.body.appendChild(toast)
-      
       setTimeout(() => toast.remove(), 5000)
     }
   })
@@ -123,6 +102,7 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
   }
 
   const handleRestore = (version) => {
+    if (!canRestore) return
     setSelectedVersion(version)
     setShowRestoreConfirm(true)
   }
@@ -130,14 +110,13 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
   const confirmRestore = () => {
     if (selectedVersion) {
       const versionId = selectedVersion.id || selectedVersion._id
-      console.log('🖱️ User confirmed restore, version ID:', versionId)
       restoreMutation.mutate(versionId)
     }
   }
 
   return (
     <>
-      {/* Main Modal - STAYS OPEN */}
+      {/* Main Modal */}
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-xl max-w-3xl w-full max-h-[80vh] flex flex-col">
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -145,7 +124,9 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
               <ClockIcon className="w-6 h-6 text-primary-600" />
               <div>
                 <h2 className="text-xl font-bold text-gray-900">Version History</h2>
-                <p className="text-sm text-gray-600">View and restore previous versions</p>
+                <p className="text-sm text-gray-600">
+                  {canRestore ? 'View and restore previous versions' : 'View previous versions (read-only)'}
+                </p>
               </div>
             </div>
             <button 
@@ -156,6 +137,17 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
               <XMarkIcon className="w-6 h-6" />
             </button>
           </div>
+
+          {/* Read-only warning */}
+          {!canRestore && (
+            <div className="mx-6 mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start space-x-2">
+              <LockClosedIcon className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-yellow-800">
+                <strong>View-only mode:</strong> You can browse version history but cannot restore versions. 
+                Contact the owner for edit access.
+              </div>
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto p-6">
             {isLoading ? (
@@ -207,13 +199,24 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
                         </div>
                       </div>
 
-                      {idx !== 0 && (
+                      {idx !== 0 && canRestore && (
                         <button
                           onClick={() => handleRestore(version)}
                           disabled={restoreMutation.isLoading}
                           className="btn-secondary flex items-center space-x-2 text-sm ml-4 disabled:opacity-50"
                         >
                           <ArrowPathIcon className="w-4 h-4" />
+                          <span>Restore</span>
+                        </button>
+                      )}
+                      
+                      {idx !== 0 && !canRestore && (
+                        <button
+                          disabled
+                          className="btn-secondary flex items-center space-x-2 text-sm ml-4 opacity-40 cursor-not-allowed"
+                          title="You don't have permission to restore versions"
+                        >
+                          <LockClosedIcon className="w-4 h-4" />
                           <span>Restore</span>
                         </button>
                       )}
@@ -227,7 +230,7 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
       </div>
 
       {/* Restore Confirmation */}
-      {showRestoreConfirm && selectedVersion && (
+      {showRestoreConfirm && selectedVersion && canRestore && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl max-w-md w-full p-6">
             <div className="flex items-start space-x-3 mb-4">
@@ -249,9 +252,6 @@ export default function VersionHistoryModal({ mindmapId, onClose }) {
                 </div>
                 <p className="text-sm text-gray-600 mb-2">
                   All connected users will see the restored version instantly.
-                </p>
-                <p className="text-sm font-medium text-blue-700">
-                  ℹ️ The canvas will update automatically via Yjs!
                 </p>
               </div>
             </div>

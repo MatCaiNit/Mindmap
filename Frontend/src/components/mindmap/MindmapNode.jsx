@@ -1,25 +1,28 @@
+// Frontend/src/components/mindmap/MindmapNode.jsx - WITH READ-ONLY MODE
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Handle, Position } from 'reactflow'
-import { PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PencilIcon, TrashIcon, LockClosedIcon } from '@heroicons/react/24/outline'
 
 export default function MindmapNode({ data, id }) {
   const [isEditing, setIsEditing] = useState(false)
-  const [localLabel, setLocalLabel] = useState(data.label) // For immediate UI feedback
+  const [localLabel, setLocalLabel] = useState(data.label)
   const inputRef = useRef(null)
+  
+  const isReadOnly = data.isReadOnly || false
 
-  // Sync label from Yjs when it changes (from other users or undo/redo)
+  // Sync label from Yjs
   useEffect(() => {
     setLocalLabel(data.label)
   }, [data.label])
 
   const handleDoubleClick = () => {
+    if (isReadOnly) return
     setIsEditing(true)
   }
 
   const handleBlur = useCallback(() => {
     setIsEditing(false)
     
-    // Only update Yjs if text actually changed
     if (data.yNodes && localLabel !== data.label) {
       const node = data.yNodes.get(id)
       if (node) {
@@ -37,10 +40,11 @@ export default function MindmapNode({ data, id }) {
 
   const handleDelete = useCallback((e) => {
     e.stopPropagation()
+    if (isReadOnly) return
     if (window.confirm('Delete this node?')) {
       data.yNodes?.delete(id)
     }
-  }, [id, data])
+  }, [id, data, isReadOnly])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
@@ -48,12 +52,11 @@ export default function MindmapNode({ data, id }) {
       handleBlur()
     }
     if (e.key === 'Escape') {
-      setLocalLabel(data.label) // Reset to original
+      setLocalLabel(data.label)
       setIsEditing(false)
     }
   }
 
-  // Auto-focus input when editing
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus()
@@ -63,20 +66,36 @@ export default function MindmapNode({ data, id }) {
 
   return (
     <div 
-      className="px-4 py-2 rounded-lg border-2 bg-white shadow-md min-w-[120px] group relative hover:shadow-lg transition"
+      className={`px-4 py-2 rounded-lg border-2 bg-white shadow-md min-w-[120px] group relative hover:shadow-lg transition ${
+        isReadOnly ? 'cursor-default' : 'cursor-pointer'
+      }`}
       style={{ borderColor: data.color }}
       onDoubleClick={handleDoubleClick}
     >
-      <Handle type="target" position={Position.Top} />
+      <Handle 
+        type="target" 
+        position={Position.Top}
+        isConnectable={!isReadOnly}
+      />
       
-      <button
-        onClick={handleDelete}
-        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
-      >
-        <TrashIcon className="w-3 h-3" />
-      </button>
+      {/* Delete button (hidden for read-only) */}
+      {!isReadOnly && (
+        <button
+          onClick={handleDelete}
+          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
+        >
+          <TrashIcon className="w-3 h-3" />
+        </button>
+      )}
+      
+      {/* Read-only indicator */}
+      {isReadOnly && (
+        <div className="absolute -top-2 -right-2 w-5 h-5 bg-gray-400 text-white rounded-full flex items-center justify-center">
+          <LockClosedIcon className="w-3 h-3" />
+        </div>
+      )}
 
-      {isEditing ? (
+      {isEditing && !isReadOnly ? (
         <input
           ref={inputRef}
           type="text"
@@ -89,11 +108,17 @@ export default function MindmapNode({ data, id }) {
       ) : (
         <div className="flex items-center space-x-2">
           <span className="text-sm font-medium text-gray-900">{localLabel}</span>
-          <PencilIcon className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
+          {!isReadOnly && (
+            <PencilIcon className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition" />
+          )}
         </div>
       )}
       
-      <Handle type="source" position={Position.Bottom} />
+      <Handle 
+        type="source" 
+        position={Position.Bottom}
+        isConnectable={!isReadOnly}
+      />
     </div>
   )
 }

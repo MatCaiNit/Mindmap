@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/MindmapCanvas.jsx - WITH DEBUG
+// Frontend/src/components/mindmap/MindmapCanvas.jsx - WITH READ-ONLY MODE
 import { useEffect, useState, useCallback } from 'react'
 import ReactFlow, {
   Background,
@@ -14,6 +14,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useAwareness } from '../../hooks/useAwareness'
 import MindmapNode from './MindmapNode'
 import Cursor from './Cursor'
+import { LockClosedIcon } from '@heroicons/react/24/outline'
 
 const nodeTypes = {
   mindmapNode: MindmapNode,
@@ -31,7 +32,7 @@ function getRandomColor(userId) {
   return USER_COLORS[hash % USER_COLORS.length]
 }
 
-export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
+export default function MindmapCanvas({ ydoc, awareness, mindmap, isReadOnly = false }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
@@ -43,17 +44,6 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
   const yEdges = ydoc.getArray('edges')
 
   const awarenessStates = useAwareness(awareness)
-
-  // 🔥 DEBUG: Log Yjs state
-  useEffect(() => {
-    console.log('🔍 MindmapCanvas mounted');
-    console.log('   yNodes size:', yNodes.size);
-    console.log('   yEdges length:', yEdges.length);
-    
-    yNodes.forEach((value, key) => {
-      console.log(`   Node ${key}:`, value);
-    });
-  }, []);
 
   useEffect(() => {
     if (!awareness || !user) return
@@ -86,13 +76,8 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
   // Sync Yjs → React Flow
   useEffect(() => {
     const updateFromYjs = () => {
-      console.log('🔄 updateFromYjs called');
-      console.log('   yNodes size:', yNodes.size);
-      console.log('   yEdges length:', yEdges.length);
-      
       const nodesData = []
       yNodes.forEach((value, key) => {
-        console.log(`   Processing node ${key}:`, value);
         nodesData.push({
           id: key,
           type: 'mindmapNode',
@@ -101,11 +86,13 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
             label: value.label || '',
             color: value.color || '#3b82f6',
             yNodes,
+            isReadOnly, // Pass read-only flag to node
           },
+          // Disable dragging for viewers
+          draggable: !isReadOnly,
         })
       })
       
-      console.log('   React nodes to set:', nodesData.length);
       setNodes(nodesData)
 
       const edgesData = yEdges.toArray().map((edge, idx) => ({
@@ -115,7 +102,6 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         type: 'smoothstep',
       }))
       
-      console.log('   React edges to set:', edgesData.length);
       setEdges(edgesData)
     }
 
@@ -128,28 +114,27 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
       yNodes.unobserve(updateFromYjs)
       yEdges.unobserve(updateFromYjs)
     }
-  }, [yNodes, yEdges])
+  }, [yNodes, yEdges, isReadOnly])
 
-  // Handle node drag
+  // Handle node drag (disabled for read-only)
   const onNodeDragStop = useCallback((event, node) => {
-    console.log('🎯 Node drag stopped:', node.id);
-    console.log('   New position:', node.position);
+    if (isReadOnly) return
     
     const existingNode = yNodes.get(node.id)
     if (existingNode) {
-      console.log('   Updating Yjs with new position');
       yNodes.set(node.id, {
         ...existingNode,
         position: node.position,
       })
-    } else {
-      console.warn('   ⚠️  Node not found in Yjs!');
     }
-  }, [yNodes])
+  }, [yNodes, isReadOnly])
 
-  // Handle connection
+  // Handle connection (disabled for read-only)
   const onConnect = useCallback((params) => {
-    console.log('🔗 New connection:', params);
+    if (isReadOnly) {
+      console.log('⚠️ Cannot create connections in read-only mode')
+      return
+    }
     
     const newEdge = {
       id: `e-${params.source}-${params.target}`,
@@ -157,14 +142,13 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
       target: params.target,
     }
     
-    console.log('   Pushing to yEdges:', newEdge);
     yEdges.push([newEdge])
-    
-    console.log('   yEdges length now:', yEdges.length);
-  }, [yEdges])
+  }, [yEdges, isReadOnly])
 
-  // Add new node (double click)
+  // Add new node (disabled for read-only)
   const onPaneClick = useCallback((event) => {
+    if (isReadOnly) return
+    
     if (event.detail === 2) {
       const id = `node-${Date.now()}`
       
@@ -174,29 +158,13 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         y: event.clientY - bounds.top,
       })
       
-      console.log('➕ Adding new node:', id);
-      console.log('   Position:', position);
-      console.log('   yNodes size before:', yNodes.size);
-      
       yNodes.set(id, {
         label: 'New Node',
         position,
         color: '#3b82f6',
       })
-      
-      console.log('   yNodes size after:', yNodes.size);
-      
-      // 🔥 DEBUG: Verify it was actually added
-      setTimeout(() => {
-        console.log('   Verification: yNodes.has(' + id + '):', yNodes.has(id));
-        if (yNodes.has(id)) {
-          console.log('   ✅ Node successfully added to Yjs');
-        } else {
-          console.error('   ❌ Node NOT in Yjs!');
-        }
-      }, 100);
     }
-  }, [yNodes, reactFlowInstance])
+  }, [yNodes, reactFlowInstance, isReadOnly])
 
   return (
     <div 
@@ -206,12 +174,15 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeDragStop={onNodeDragStop}
-        onConnect={onConnect}
-        onPaneClick={onPaneClick}
+        onNodesChange={isReadOnly ? undefined : onNodesChange}
+        onEdgesChange={isReadOnly ? undefined : onEdgesChange}
+        onNodeDragStop={isReadOnly ? undefined : onNodeDragStop}
+        onConnect={isReadOnly ? undefined : onConnect}
+        onPaneClick={isReadOnly ? undefined : onPaneClick}
         nodeTypes={nodeTypes}
+        nodesDraggable={!isReadOnly}
+        nodesConnectable={!isReadOnly}
+        elementsSelectable={!isReadOnly}
         fitView
       >
         <Background />
@@ -219,6 +190,7 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         <MiniMap />
       </ReactFlow>
 
+      {/* Cursors */}
       {awarenessStates.map((state) => (
         state.cursor && (
           <Cursor
@@ -230,10 +202,19 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         )
       ))}
 
+      {/* Help text */}
       <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-2 text-sm text-gray-600">
-        <p>💡 Double-click canvas to add node • Drag to connect • Double-click node to edit</p>
+        {isReadOnly ? (
+          <div className="flex items-center space-x-2">
+            <LockClosedIcon className="w-4 h-4 text-yellow-600" />
+            <p>👁️ View-only mode - You cannot edit this mindmap</p>
+          </div>
+        ) : (
+          <p>💡 Double-click canvas to add node • Drag to connect • Double-click node to edit</p>
+        )}
       </div>
 
+      {/* Active users */}
       <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg px-3 py-2 text-sm">
         <div className="flex items-center space-x-2">
           <div className="flex -space-x-2">
@@ -259,11 +240,12 @@ export default function MindmapCanvas({ ydoc, awareness, mindmap }) {
         </div>
       </div>
       
-      {/* 🔥 DEBUG PANEL */}
+      {/* Debug panel */}
       <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 text-xs font-mono">
-        <div className="font-bold mb-1">Yjs State:</div>
+        <div className="font-bold mb-1">State:</div>
         <div>Nodes: {yNodes.size}</div>
         <div>Edges: {yEdges.length}</div>
+        {isReadOnly && <div className="text-yellow-600 font-bold mt-1">READ-ONLY</div>}
       </div>
     </div>
   )

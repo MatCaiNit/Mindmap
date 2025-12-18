@@ -1,3 +1,4 @@
+// Frontend/src/components/mindmap/EditorToolbar.jsx - UPDATED WITH TABS
 import { useState, useEffect } from 'react'
 import { 
   ArrowLeftIcon, 
@@ -7,25 +8,35 @@ import {
   CheckCircleIcon,
   BookmarkIcon,
   ArrowUturnLeftIcon,
-  ArrowUturnRightIcon
+  ArrowUturnRightIcon,
+  EyeIcon,
+  LockClosedIcon
 } from '@heroicons/react/24/outline'
 import { useMutation } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
 import VersionHistoryModal from './VersionHistoryModal'
+import CollaboratorsTab from './CollaboratorsTab'
 
-export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) {
+export default function EditorToolbar({ 
+  mindmap, 
+  synced, 
+  undoManager, 
+  onBack,
+  userRole = 'viewer' // 'owner', 'editor', or 'viewer'
+}) {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
+  const [showCollaborators, setShowCollaborators] = useState(false)
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [saveLabel, setSaveLabel] = useState('')
   
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
-  // DEBUG: Log synced changes
-  useEffect(() => {
-    console.log('🔄 EditorToolbar - synced changed:', synced)
-  }, [synced])
+  const isOwner = userRole === 'owner'
+  const isEditor = userRole === 'editor' || isOwner
+  const isViewer = userRole === 'viewer'
 
+  // Update undo/redo state
   useEffect(() => {
     if (!undoManager) return
 
@@ -47,55 +58,44 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
 
   // Manual save mutation
   const saveMutation = useMutation({
-    mutationFn: (label) => {
-      console.log('🚀 Mutation triggered with label:', label)
-      console.log('   Mindmap ID:', mindmap._id)
-      return versionService.saveManualVersion(mindmap._id, label)
-    },
-    onSuccess: (data) => {
-      console.log('✅ Save mutation success:', data)
+    mutationFn: (label) => versionService.saveManualVersion(mindmap._id, label),
+    onSuccess: () => {
       alert('✅ Version saved successfully!')
       setShowSaveModal(false)
       setSaveLabel('')
     },
     onError: (err) => {
-      console.error('❌ Save mutation error:', err)
       alert(`❌ Failed to save: ${err.response?.data?.message || err.message}`)
     }
   })
 
   const handleManualSave = () => {
-    console.log('🖱️ Save Version button clicked')
-    console.log('   Mindmap:', mindmap)
-    console.log('   Synced:', synced)
-    console.log('   Button disabled?', !synced || saveMutation.isLoading)
+    if (!isEditor) return
     setShowSaveModal(true)
   }
 
   const confirmSave = (e) => {
     e.preventDefault()
-    console.log('✅ Confirm save clicked')
-    console.log('   Label:', saveLabel)
-    console.log('   Is loading?', saveMutation.isLoading)
     saveMutation.mutate(saveLabel)
   }
 
   const handleUndo = () => {
-    if (undoManager && canUndo) {
+    if (undoManager && canUndo && isEditor) {
       undoManager.undo()
     }
   }
 
   const handleRedo = () => {
-    if (undoManager && canRedo) {
+    if (undoManager && canRedo && isEditor) {
       undoManager.redo()
     }
   }
 
   return (
     <>
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center justify-between">
+      <div className="bg-white border-b border-gray-200">
+        {/* Main Toolbar */}
+        <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
               onClick={onBack}
@@ -105,8 +105,14 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
             </button>
             
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">
-                {mindmap.title}
+              <h1 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                <span>{mindmap.title}</span>
+                {isViewer && (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                    <EyeIcon className="w-3 h-3 mr-1" />
+                    Read-only
+                  </span>
+                )}
               </h1>
               {mindmap.description && (
                 <p className="text-sm text-gray-600">{mindmap.description}</p>
@@ -115,21 +121,21 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* Undo/Redo Buttons */}
+            {/* Undo/Redo - Disabled for viewers */}
             <div className="flex items-center space-x-1 border-r pr-4">
               <button
                 onClick={handleUndo}
-                disabled={!canUndo}
+                disabled={!canUndo || !isEditor}
                 className="p-2 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
-                title="Undo (Ctrl+Z)"
+                title={isViewer ? "View-only mode" : "Undo (Ctrl+Z)"}
               >
                 <ArrowUturnLeftIcon className="w-5 h-5" />
               </button>
               <button
                 onClick={handleRedo}
-                disabled={!canRedo}
+                disabled={!canRedo || !isEditor}
                 className="p-2 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
-                title="Redo (Ctrl+Shift+Z)"
+                title={isViewer ? "View-only mode" : "Redo (Ctrl+Shift+Z)"}
               >
                 <ArrowUturnRightIcon className="w-5 h-5" />
               </button>
@@ -150,47 +156,89 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
               )}
             </div>
 
-            {/* Save Version Button - TEMPORARILY REMOVE DISABLED */}
-            <button 
-              onClick={handleManualSave}
-              className="btn-secondary flex items-center space-x-2 text-sm disabled:opacity-50"
-              disabled={saveMutation.isLoading}
-              title={!synced ? '⚠️ Not synced yet, but you can still try to save' : ''}
-            >
-              <BookmarkIcon className="w-4 h-4" />
-              <span>Save Version</span>
-              {!synced && <span className="text-xs text-yellow-600">(!synced)</span>}
-            </button>
+            {/* Save Version - Only for editors */}
+            {isEditor && (
+              <button 
+                onClick={handleManualSave}
+                className="btn-secondary flex items-center space-x-2 text-sm disabled:opacity-50"
+                disabled={saveMutation.isLoading}
+              >
+                <BookmarkIcon className="w-4 h-4" />
+                <span>Save Version</span>
+              </button>
+            )}
 
-            {/* Version History Button */}
+            {/* Version History */}
             <button 
-              onClick={() => {
-                console.log('📖 History button clicked')
-                setShowVersionHistory(true)
-              }}
+              onClick={() => setShowVersionHistory(true)}
               className="btn-secondary flex items-center space-x-2 text-sm"
             >
               <ClockIcon className="w-4 h-4" />
               <span>History</span>
             </button>
 
-            {/* Share Button */}
-            <button className="btn-primary flex items-center space-x-2 text-sm">
+            {/* Collaborators Button */}
+            <button 
+              onClick={() => setShowCollaborators(true)}
+              className="btn-primary flex items-center space-x-2 text-sm"
+            >
               <UserGroupIcon className="w-4 h-4" />
-              <span>Share</span>
+              <span>Team</span>
             </button>
           </div>
         </div>
+
+        {/* Warning Banner for Viewers */}
+        {isViewer && (
+          <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-100">
+            <div className="flex items-center space-x-2 text-sm text-yellow-800">
+              <LockClosedIcon className="w-4 h-4" />
+              <span>
+                You're viewing this mindmap in <strong>read-only mode</strong>. 
+                Contact the owner for edit access.
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Version History Modal */}
       {showVersionHistory && (
         <VersionHistoryModal
           mindmapId={mindmap._id}
-          onClose={() => {
-            console.log('❌ History modal closed')
-            setShowVersionHistory(false)
-          }}
+          onClose={() => setShowVersionHistory(false)}
+          canRestore={isEditor}
+        />
+      )}
+
+      {/* Collaborators Sidebar */}
+      {showCollaborators && (
+        <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <h2 className="text-lg font-bold text-gray-900">Collaborators</h2>
+            <button
+              onClick={() => setShowCollaborators(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          <CollaboratorsTab
+            mindmapId={mindmap._id}
+            isOwner={isOwner}
+            currentUserId={mindmap.currentUserId}
+          />
+        </div>
+      )}
+
+      {/* Backdrop for sidebar */}
+      {showCollaborators && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-25 z-40"
+          onClick={() => setShowCollaborators(false)}
         />
       )}
 
@@ -208,11 +256,8 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
                 <input
                   type="text"
                   value={saveLabel}
-                  onChange={(e) => {
-                    console.log('📝 Label changed:', e.target.value)
-                    setSaveLabel(e.target.value)
-                  }}
-                  className="input"
+                  onChange={(e) => setSaveLabel(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   placeholder="e.g., Before major changes"
                   autoFocus
                 />
@@ -221,10 +266,7 @@ export default function EditorToolbar({ mindmap, synced, undoManager, onBack }) 
               <div className="flex space-x-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    console.log('❌ Save modal cancelled')
-                    setShowSaveModal(false)
-                  }}
+                  onClick={() => setShowSaveModal(false)}
                   className="btn-secondary flex-1"
                   disabled={saveMutation.isLoading}
                 >

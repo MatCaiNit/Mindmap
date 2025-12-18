@@ -1,6 +1,4 @@
-// ==========================================
-// FILE: Frontend/src/services/mindmapService.js
-// ==========================================
+// Frontend/src/services/mindmapService.js - FIXED
 import { api } from '../lib/api'
 
 export const mindmapService = {
@@ -11,7 +9,11 @@ export const mindmapService = {
 
   async get(id) {
     const response = await api.get(`/mindmaps/${id}`)
-    return response.data.mindmap
+    // 🔥 FIX: Return BOTH mindmap AND access field
+    return {
+      ...response.data.mindmap,
+      access: response.data.access  // ← This was missing!
+    }
   },
 
   async create(title, description = '') {
