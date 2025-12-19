@@ -1,4 +1,4 @@
-// Frontend/src/pages/editor/EditorPage.jsx - FIXED: Stable Provider Reference
+// Frontend/src/pages/editor/EditorPage.jsx - UPDATED
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -7,7 +7,7 @@ import { mindmapService } from '../../services/mindmapService'
 import { useAuthStore } from '../../stores/authStore'
 import { createYjsProvider } from '../../lib/yjs'
 import { createUndoManager, useUndoShortcuts } from '../../lib/undoManager'
-import MindmapCanvas from '../../components/mindmap/MindmapCanvas'
+import MindMeisterCanvas from '../../components/mindmap/MindMeisterCanvas'
 import EditorToolbar from '../../components/mindmap/EditorToolbar'
 
 export default function EditorPage() {
@@ -16,7 +16,6 @@ export default function EditorPage() {
   const accessToken = useAuthStore((state) => state.accessToken)
   const currentUser = useAuthStore((state) => state.user)
   
-  // 🔥 FIX: Use refs to keep stable references
   const [providerReady, setProviderReady] = useState(false)
   const [undoManager, setUndoManager] = useState(null)
   const [synced, setSynced] = useState(false)
@@ -32,7 +31,7 @@ export default function EditorPage() {
   const userRole = mindmap?.access || 'viewer'
   const isViewer = userRole === 'viewer'
 
-  // Setup Yjs Provider - ONLY ONCE
+  // Setup Yjs Provider
   useEffect(() => {
     if (!mindmap || !accessToken || providerRef.current || setupInProgress.current) {
       return
@@ -42,24 +41,18 @@ export default function EditorPage() {
 
     async function setupProvider() {
       console.log('🔌 Setting up Yjs Provider')
-      console.log('   User role:', userRole)
-      console.log('   Is viewer:', isViewer)
 
       try {
         const provider = await createYjsProvider(mindmap.ydocId, accessToken)
         
         providerRef.current = provider
-        setProviderReady(true) // ← Signal that provider is ready
+        setProviderReady(true)
 
         provider.wsProvider.on('sync', (isSynced) => {
           setSynced(isSynced)
           if (isSynced) {
             console.log('✅ Synced with', provider.ydoc.getMap('nodes').size, 'nodes')
           }
-        })
-
-        provider.wsProvider.on('status', ({ status }) => {
-          console.log('📡 WebSocket status:', status)
         })
 
         const undo = createUndoManager(provider.ydoc)
@@ -93,7 +86,7 @@ export default function EditorPage() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading mindmap...</p>
@@ -133,10 +126,9 @@ export default function EditorPage() {
       />
 
       <div className="flex-1 relative">
-        {/* 🔥 FIX: Only render when provider is ready AND use stable ref */}
         {providerReady && providerRef.current ? (
           <ReactFlowProvider>
-            <MindmapCanvas 
+            <MindMeisterCanvas 
               ydoc={providerRef.current.ydoc}
               awareness={providerRef.current.awareness}
               mindmap={enhancedMindmap}
@@ -144,7 +136,7 @@ export default function EditorPage() {
             />
           </ReactFlowProvider>
         ) : (
-          <div className="h-full flex items-center justify-center">
+          <div className="h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
             <div className="text-center">
               <div className="w-12 h-12 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
               <p className="text-gray-600">Connecting to collaboration server...</p>

@@ -45,3 +45,140 @@
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
 }
+
+/* Thêm vào cuối file Frontend/src/index.css */
+
+/* MindMeister Animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Smooth transitions for nodes */
+.react-flow__node {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.react-flow__node:hover {
+  z-index: 10;
+}
+
+/* Custom edge styling */
+.react-flow__edge-path {
+  transition: stroke 0.2s ease;
+}
+
+/* Toolbar shadow */
+.floating-toolbar {
+  box-shadow: 
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Node hover effects */
+.mindmap-node {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mindmap-node:hover {
+  filter: brightness(1.05);
+  transform: scale(1.02);
+}
+
+/* Add button pulse */
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.add-button-pulse {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Selection ring */
+.react-flow__node.selected {
+  outline: none !important;
+}
+
+/* Smooth zoom */
+.react-flow__viewport {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Mini map styling */
+.react-flow__minimap {
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+/* Controls styling */
+.react-flow__controls {
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.react-flow__controls-button {
+  background-color: white;
+  border: none;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #f9fafb;
+}
+
+/* Kbd styling */
+kbd {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #374151;
+  background-color: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Gradient background */
+.mindmap-gradient-bg {
+  background: linear-gradient(
+    135deg,
+    #f9fafb 0%,
+    #f3f4f6 50%,
+    #e5e7eb 100%
+  );
+}
+
+/* Smooth color transitions */
+* {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Disable transitions for dragging */
+.react-flow__node.dragging,
+.react-flow__node.dragging * {
+  transition: none !important;
+}
