@@ -1,6 +1,4 @@
-// ==========================================
-// FILE: Frontend/src/App.jsx
-// ==========================================
+// Frontend/src/App.jsx - UPDATED
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 // Pages
@@ -8,6 +6,7 @@ import LoginPage from './pages/auth/LoginPage'
 import RegisterPage from './pages/auth/RegisterPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import EditorPage from './pages/editor/EditorPage'
+import ProfilePage from './pages/profile/ProfilePage'
 
 // Layout
 import Layout from './components/layout/Layout'
@@ -25,6 +24,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="/mindmap/:id" element={<EditorPage />} />
           </Route>
         </Route>

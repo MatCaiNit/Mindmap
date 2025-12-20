@@ -1,10 +1,8 @@
-// ==========================================
-// FILE: Frontend/src/components/mindmap/MindmapCard.jsx
-// ==========================================
+// Frontend/src/components/mindmap/MindmapCard.jsx - UPDATED
 import { useNavigate } from 'react-router-dom'
 import { TrashIcon, CalendarIcon } from '@heroicons/react/24/outline'
 
-export default function MindmapCard({ mindmap, onDelete }) {
+export default function MindmapCard({ mindmap, onDelete, showDelete = true }) {
   const navigate = useNavigate()
 
   const formatDate = (date) => {
@@ -31,12 +29,14 @@ export default function MindmapCard({ mindmap, onDelete }) {
         <h3 className="text-lg font-semibold text-gray-900 group-hover:text-primary-600 transition">
           {mindmap.title}
         </h3>
-        <button
-          onClick={handleDelete}
-          className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-red-600"
-        >
-          <TrashIcon className="w-5 h-5" />
-        </button>
+        {showDelete && (
+          <button
+            onClick={handleDelete}
+            className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-red-600"
+          >
+            <TrashIcon className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       {mindmap.description && (

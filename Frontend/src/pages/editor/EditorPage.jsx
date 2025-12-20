@@ -1,4 +1,4 @@
-// Frontend/src/pages/editor/EditorPage.jsx - UPDATED
+// Frontend/src/pages/editor/EditorPage.jsx - WITH AI SUPPORT
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -31,7 +31,6 @@ export default function EditorPage() {
   const userRole = mindmap?.access || 'viewer'
   const isViewer = userRole === 'viewer'
 
-  // Setup Yjs Provider
   useEffect(() => {
     if (!mindmap || !accessToken || providerRef.current || setupInProgress.current) {
       return
@@ -123,6 +122,8 @@ export default function EditorPage() {
         undoManager={undoManager}
         onBack={() => navigate('/dashboard')}
         userRole={userRole}
+        yNodes={providerRef.current?.ydoc.getMap('nodes')}
+        yEdges={providerRef.current?.ydoc.getArray('edges')}
       />
 
       <div className="flex-1 relative">

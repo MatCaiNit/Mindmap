@@ -1,12 +1,12 @@
-// Backend/app.js
+// Backend/app.js - UPDATED
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 
 import authRoutes from './routes/auth.routes.js';
 import mindmapRoutes from './routes/mindmap.routes.js';
-import nodeRoutes from './routes/node.routes.js';
 import collabRoutes from './routes/collab.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import internalRoutes from './routes/internal.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 
@@ -20,8 +20,8 @@ app.use('/api/internal', internalRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/mindmaps', mindmapRoutes);
-app.use('/api/nodes', nodeRoutes);
 app.use('/api/collab', collabRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use(errorHandler);
 

@@ -1,10 +1,13 @@
-// Frontend/src/components/mindmap/FloatingToolbar.jsx - COMBINED VERSION
+// Frontend/src/components/mindmap/FloatingToolbar.jsx - WITH AI SUGGEST
 
 import { useState, useEffect, useRef } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { aiService } from '../../services/aiService'
 import {
   LockClosedIcon,
   LockOpenIcon,
   LinkIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline'
 
 const NODE_COLORS = [
@@ -29,6 +32,7 @@ export default function FloatingToolbar({
   selectedNode, 
   position, 
   yNodes,
+  yEdges,
   onToggleAutoAlign,
   onStartConnection,
   isCreatingConnection 
@@ -36,11 +40,34 @@ export default function FloatingToolbar({
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showTextColorPicker, setShowTextColorPicker] = useState(false)
   const [showFontSize, setShowFontSize] = useState(false)
+  const [showAISuggestions, setShowAISuggestions] = useState(false)
+  const [aiSuggestions, setAISuggestions] = useState([])
   const toolbarRef = useRef(null)
 
   const currentNode = yNodes.get(selectedNode.id) || {}
   const isRoot = selectedNode.id === 'root-node'
   const autoAlign = currentNode.autoAlign !== false
+
+  // AI Suggest Mutation
+  const suggestMutation = useMutation({
+    mutationFn: async () => {
+      const context = {
+        currentNode: currentNode.label,
+        parentNodes: getParentChain(selectedNode.id),
+        siblings: getSiblings(selectedNode.id)
+      }
+      
+      const result = await aiService.suggestNodes(selectedNode.id, context)
+      return result.suggestions
+    },
+    onSuccess: (suggestions) => {
+      setAISuggestions(suggestions)
+      setShowAISuggestions(true)
+    },
+    onError: (err) => {
+      alert(err.response?.data?.error || 'AI suggestion failed')
+    }
+  })
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -49,12 +76,44 @@ export default function FloatingToolbar({
         setShowColorPicker(false)
         setShowTextColorPicker(false)
         setShowFontSize(false)
+        setShowAISuggestions(false)
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const getParentChain = (nodeId) => {
+    const chain = []
+    let current = yNodes.get(nodeId)
+    
+    while (current && current.parentId) {
+      const parent = yNodes.get(current.parentId)
+      if (parent) {
+        chain.unshift(parent.label)
+        current = parent
+      } else {
+        break
+      }
+    }
+    
+    return chain
+  }
+
+  const getSiblings = (nodeId) => {
+    const node = yNodes.get(nodeId)
+    if (!node || !node.parentId) return []
+    
+    const siblings = []
+    yNodes.forEach((value, key) => {
+      if (key !== nodeId && value.parentId === node.parentId) {
+        siblings.push(value.label)
+      }
+    })
+    
+    return siblings
+  }
 
   const updateNode = (updates) => {
     if (!selectedNode || !yNodes) return
@@ -99,6 +158,72 @@ export default function FloatingToolbar({
     if (onStartConnection) {
       onStartConnection()
     }
+  }
+
+  const handleAISuggestClick = () => {
+    if (!showAISuggestions) {
+      suggestMutation.mutate()
+    } else {
+      setShowAISuggestions(false)
+    }
+  }
+
+  const handleApplySuggestion = (suggestion) => {
+    const parent = currentNode
+    const newId = `node-${Date.now()}`
+    const level = (parent.level || 0) + 1
+    const side = parent.side || 'right'
+    const color = parent.color || '#3b82f6'
+    
+    // Calculate position
+    let siblingCount = 0
+    yNodes.forEach(v => {
+      if (v.parentId === selectedNode.id && v.autoAlign !== false) siblingCount++
+    })
+    
+    const direction = side === 'left' ? -1 : 1
+    const position = {
+      x: parent.position.x + (direction * 250),
+      y: parent.position.y + (siblingCount * 80)
+    }
+    
+    // Create node
+    yNodes.set(newId, {
+      label: suggestion.text,
+      position,
+      parentId: selectedNode.id,
+      level,
+      color,
+      side,
+      autoAlign: true
+    })
+    
+    // Create edge
+    const sourceHandle = side === 'left' ? 'source-left' : 'source-right'
+    const targetHandle = side === 'left' ? 'target-right' : 'target-left'
+    
+    yEdges.push([{
+      id: `e-${selectedNode.id}-${newId}`,
+      source: selectedNode.id,
+      target: newId,
+      sourceHandle,
+      targetHandle,
+      color,
+      isParentChild: true
+    }])
+
+    // 🔥 Apply layout after adding AI suggestion
+    setTimeout(() => {
+      const { calculateBalancedLayout } = require('../../lib/treeLayout')
+      const positions = calculateBalancedLayout(yNodes)
+      
+      positions.forEach((pos, nodeId) => {
+        const node = yNodes.get(nodeId)
+        if (node && node.autoAlign !== false && !node.isFree) {
+          yNodes.set(nodeId, { ...node, position: pos })
+        }
+      })
+    }, 100)
   }
 
   if (!selectedNode || !position) return null
@@ -283,6 +408,54 @@ export default function FloatingToolbar({
                   }`}
                   style={{ backgroundColor: color }}
                 />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AI Suggest Button */}
+      <div className="relative pr-2 border-r border-gray-200">
+        <button
+          onClick={handleAISuggestClick}
+          disabled={suggestMutation.isLoading}
+          className={`p-2 rounded transition ${
+            showAISuggestions
+              ? 'bg-purple-100 text-purple-600' 
+              : 'hover:bg-gray-100 text-gray-700'
+          } disabled:opacity-50`}
+          title="AI Suggest Ideas"
+        >
+          {suggestMutation.isLoading ? (
+            <div className="w-5 h-5 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <SparklesIcon className="w-5 h-5" />
+          )}
+        </button>
+
+        {showAISuggestions && aiSuggestions.length > 0 && (
+          <div 
+            className="absolute top-12 left-0 bg-white rounded-lg shadow-xl border border-gray-200 p-3 z-[100]"
+            style={{ minWidth: '250px' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-gray-700">AI Suggestions</p>
+              <button
+                onClick={() => setShowAISuggestions(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2">
+              {aiSuggestions.map((suggestion, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleApplySuggestion(suggestion)}
+                  className="w-full px-3 py-2 text-left text-sm bg-purple-50 hover:bg-purple-100 rounded-lg transition"
+                >
+                  <span className="text-purple-600">✨</span> {suggestion.text}
+                </button>
               ))}
             </div>
           </div>

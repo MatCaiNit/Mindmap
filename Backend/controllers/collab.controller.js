@@ -1,31 +1,56 @@
-// Backend/controllers/collab.controller.js - UPDATED
+// Backend/controllers/collab.controller.js - UPDATED WITH NOTIFICATION
 import Mindmap from '../models/Mindmap.js';
 import User from '../models/User.js';
 import AuditLog from '../models/AuditLog.js';
+import Notification from '../models/Notification.js';
 
 export async function addCollaborator(req, res) {
   try {
     const { mindmapId } = req.params;
     const { email, role } = req.body;
+    
     const mm = await Mindmap.findById(mindmapId);
     if (!mm) return res.status(404).json({ message: 'Mindmap not found' });
-    if (mm.ownerId.toString() !== req.user.id) return res.status(403).json({ message: 'Only owner' });
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    if ((mm.collaborators || []).some(c=> c.userId.toString() === user._id.toString())) {
-      return res.status(400).json({ message: 'Already collaborator' });
+    if (mm.ownerId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Only owner can add collaborators' });
     }
-    mm.collaborators.push({ userId: user._id, role: role || 'editor' });
-    await mm.save();
+    
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    if ((mm.collaborators || []).some(c => c.userId.toString() === user._id.toString())) {
+      return res.status(400).json({ message: 'Already a collaborator' });
+    }
+    
+    // 🔥 CREATE NOTIFICATION instead of direct add
+    const existingNotif = await Notification.findOne({
+      type: 'collaboration_invite',
+      toUser: user._id,
+      mindmap: mm._id,
+      status: 'pending'
+    });
+    
+    if (existingNotif) {
+      return res.status(400).json({ message: 'Invitation already sent' });
+    }
+    
+    await Notification.create({
+      type: 'collaboration_invite',
+      toUser: user._id,
+      fromUser: req.user.id,
+      mindmap: mm._id,
+      role: role || 'viewer',
+      message: `${mm.title} - Collaboration invite`
+    });
     
     await AuditLog.create({
       mindmapId: mm._id,
       userId: req.user.id,
-      action: 'add-collaborator',
+      action: 'invite-collaborator',
       detail: { email, role, userId: user._id }
     });
     
-    res.json({ ok: true, mm });
+    res.json({ ok: true, message: 'Invitation sent successfully' });
   } catch (err) { 
     res.status(500).json({ message: err.message }); 
   }
@@ -40,7 +65,6 @@ export async function listCollaborators(req, res) {
     
     if (!mm) return res.status(404).json({ message: 'Not found' });
     
-    // Return owner + collaborators
     const result = {
       owner: {
         userId: mm.ownerId,
@@ -55,7 +79,6 @@ export async function listCollaborators(req, res) {
   }
 }
 
-// NEW: Remove collaborator
 export async function removeCollaborator(req, res) {
   try {
     const { mindmapId, userId } = req.params;
@@ -63,17 +86,14 @@ export async function removeCollaborator(req, res) {
     const mm = await Mindmap.findById(mindmapId);
     if (!mm) return res.status(404).json({ message: 'Mindmap not found' });
     
-    // Only owner can remove
     if (mm.ownerId.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Only owner can remove collaborators' });
     }
     
-    // Cannot remove owner
     if (userId === mm.ownerId.toString()) {
       return res.status(400).json({ message: 'Cannot remove owner' });
     }
     
-    // Remove from collaborators array
     const initialLength = mm.collaborators.length;
     mm.collaborators = mm.collaborators.filter(
       c => c.userId.toString() !== userId
@@ -98,7 +118,6 @@ export async function removeCollaborator(req, res) {
   }
 }
 
-// NEW: Update collaborator role
 export async function updateCollaboratorRole(req, res) {
   try {
     const { mindmapId, userId } = req.params;

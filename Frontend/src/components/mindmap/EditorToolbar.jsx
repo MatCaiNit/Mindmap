@@ -1,4 +1,5 @@
-// Frontend/src/components/mindmap/EditorToolbar.jsx - UPDATED WITH TABS
+// Frontend/src/components/mindmap/EditorToolbar.jsx - AI BUTTON REMOVED
+
 import { useState, useEffect } from 'react'
 import { 
   ArrowLeftIcon, 
@@ -10,7 +11,7 @@ import {
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
   EyeIcon,
-  LockClosedIcon
+  LockClosedIcon,
 } from '@heroicons/react/24/outline'
 import { useMutation } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
@@ -22,7 +23,7 @@ export default function EditorToolbar({
   synced, 
   undoManager, 
   onBack,
-  userRole = 'viewer' // 'owner', 'editor', or 'viewer'
+  userRole = 'viewer',
 }) {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showCollaborators, setShowCollaborators] = useState(false)
@@ -36,7 +37,6 @@ export default function EditorToolbar({
   const isEditor = userRole === 'editor' || isOwner
   const isViewer = userRole === 'viewer'
 
-  // Update undo/redo state
   useEffect(() => {
     if (!undoManager) return
 
@@ -56,7 +56,6 @@ export default function EditorToolbar({
     }
   }, [undoManager])
 
-  // Manual save mutation
   const saveMutation = useMutation({
     mutationFn: (label) => versionService.saveManualVersion(mindmap._id, label),
     onSuccess: () => {
@@ -94,7 +93,6 @@ export default function EditorToolbar({
   return (
     <>
       <div className="bg-white border-b border-gray-200">
-        {/* Main Toolbar */}
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
@@ -121,7 +119,7 @@ export default function EditorToolbar({
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* Undo/Redo - Disabled for viewers */}
+            {/* Undo/Redo */}
             <div className="flex items-center space-x-1 border-r pr-4">
               <button
                 onClick={handleUndo}
@@ -156,7 +154,7 @@ export default function EditorToolbar({
               )}
             </div>
 
-            {/* Save Version - Only for editors */}
+            {/* Save Version */}
             {isEditor && (
               <button 
                 onClick={handleManualSave}
@@ -213,33 +211,32 @@ export default function EditorToolbar({
 
       {/* Collaborators Sidebar */}
       {showCollaborators && (
-        <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900">Collaborators</h2>
-            <button
-              onClick={() => setShowCollaborators(false)}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        <>
+          <div className="fixed inset-y-0 right-0 w-96 bg-white shadow-2xl z-50 flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="text-lg font-bold text-gray-900">Collaborators</h2>
+              <button
+                onClick={() => setShowCollaborators(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <CollaboratorsTab
+              mindmapId={mindmap._id}
+              isOwner={isOwner}
+              currentUserId={mindmap.currentUserId}
+            />
           </div>
           
-          <CollaboratorsTab
-            mindmapId={mindmap._id}
-            isOwner={isOwner}
-            currentUserId={mindmap.currentUserId}
+          <div
+            className="fixed inset-0 bg-black bg-opacity-25 z-40"
+            onClick={() => setShowCollaborators(false)}
           />
-        </div>
-      )}
-
-      {/* Backdrop for sidebar */}
-      {showCollaborators && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-25 z-40"
-          onClick={() => setShowCollaborators(false)}
-        />
+        </>
       )}
 
       {/* Save Version Modal */}

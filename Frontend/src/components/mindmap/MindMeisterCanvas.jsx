@@ -1,4 +1,5 @@
-// Frontend/src/components/mindmap/MindMeisterCanvas.jsx - FREE NODE FIXED
+// Frontend/src/components/mindmap/MindMeisterCanvas.jsx - WITH AI BUTTON
+
 import { useReactFlow } from 'reactflow'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import ReactFlow, {
@@ -15,6 +16,7 @@ import { useAwareness } from '../../hooks/useAwareness'
 import MindMeisterNode from './MindMeisterNode'
 import CustomEdge from './CustomEdge'
 import FloatingToolbar from './FloatingToolbar'
+import AIAssistantModal from './AIAssistantModal'
 import Cursor from './Cursor'
 import { 
   calculateBalancedLayout,
@@ -23,7 +25,7 @@ import {
   updateSubtreeSide,
   determineFreeNodeSide
 } from '../../lib/treeLayout'
-import { PlusCircleIcon } from '@heroicons/react/24/solid'
+import { PlusCircleIcon, SparklesIcon } from '@heroicons/react/24/solid'
 
 const nodeTypes = { mindmeister: MindMeisterNode }
 const edgeTypes = { custom: CustomEdge }
@@ -41,6 +43,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState(null)
   const [toolbarPosition, setToolbarPosition] = useState(null)
+  const [showAIModal, setShowAIModal] = useState(false)
   
   // Connection mode
   const [isCreatingConnection, setIsCreatingConnection] = useState(false)
@@ -119,17 +122,14 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     const isRoot = parentId === 'root-node'
     let side
     if (isRoot) {
-      // chỉ root mới được split
       side = getSuggestedSide(parentId, yNodes)
     } else {
-      // free node & mindmap node đều inherit
       side = parent.side
     }
     
     const color = getBranchColor(parentId)
     const position = calculateNewNodePosition(parentId, yNodes, side)
     
-    // Create node with empty label and editing=true for auto-focus
     yNodes.set(newId, {
       label: '',
       position,
@@ -157,44 +157,32 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     setTimeout(() => applyLayout(), 100)
   }, [yNodes, yEdges, calculateLevel, getBranchColor, isReadOnly])
 
-  // 🔥 FIX: Add free node with proper side determination
   const handleAddFreeNode = useCallback(() => {
-  if (isReadOnly) return
+    if (isReadOnly) return
 
-  const newId = `node-${Date.now()}`
+    const newId = `node-${Date.now()}`
+    const { x, y, zoom } = reactFlowInstance.getViewport()
+    const centerX = window.innerWidth / 2
+    const centerY = window.innerHeight / 2
+    const flowPosition = reactFlowInstance.project({ x: centerX, y: centerY })
 
-  // Lấy viewport hiện tại
-  const { x, y, zoom } = reactFlowInstance.getViewport()
+    const rootNode = yNodes.get('root-node')
+    const rootX = rootNode?.position?.x ?? flowPosition.x
+    const side = determineFreeNodeSide(flowPosition.x, rootX)
 
-  //  Lấy center màn hình (pixel)
-  const centerX = window.innerWidth / 2
-  const centerY = window.innerHeight / 2
+    yNodes.set(newId, {
+      label: 'Free Node',
+      position: flowPosition,
+      parentId: null,
+      level: 1,
+      color: '#64748b',
+      side,
+      autoAlign: false,
+      isFree: true
+    })
+  }, [reactFlowInstance, yNodes, isReadOnly])
 
-  //  Convert sang flow coordinate
-  const flowPosition = reactFlowInstance.project({
-    x: centerX,
-    y: centerY,
-  })
-
-  //  Xác định side theo root
-  const rootNode = yNodes.get('root-node')
-  const rootX = rootNode?.position?.x ?? flowPosition.x
-  const side = determineFreeNodeSide(flowPosition.x, rootX)
-
-  //  Tạo free node
-  yNodes.set(newId, {
-    label: 'Free Node',
-    position: flowPosition,
-    parentId: null,
-    level: 1,
-    color: '#64748b',
-    side,
-    autoAlign: false, // 🔒 free node không auto-align
-    isFree: true
-  })
-}, [reactFlowInstance, yNodes, isReadOnly])
-
-  // Apply layout (balanced only)
+  // Apply layout
   const applyLayout = useCallback(() => {
     const positions = calculateBalancedLayout(yNodes)
     
@@ -225,6 +213,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
   const handleStartConnectionMode = useCallback(() => {
     if (isReadOnly) return
     setIsCreatingConnection(true)
+    // 🔥 Close toolbar when starting connection mode
     setToolbarPosition(null)
   }, [isReadOnly])
 
@@ -324,7 +313,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     }
   }, [yEdges, isReadOnly])
 
-  // Reparent node with subtree update
+  // Reparent node
   const handleReparent = useCallback((draggedNodeId, newParentId) => {
     if (isReadOnly) return
     
@@ -333,7 +322,6 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     
     if (!draggedNode || !newParent || draggedNodeId === newParentId) return
     
-    // Prevent cycles
     let current = newParentId
     while (current) {
       if (current === draggedNodeId) {
@@ -344,7 +332,6 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       current = node?.parentId
     }
     
-    // Remove old parent-child edge
     const edgesArray = yEdges.toArray()
     const oldEdgeIdx = edgesArray.findIndex(e => 
       e.isParentChild && e.target === draggedNodeId
@@ -354,20 +341,15 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       yEdges.delete(oldEdgeIdx, 1)
     }
     
-    // Determine new side
     let newSide
     if (!newParent.parentId) {
-      // New parent is root
       newSide = getSuggestedSide(newParentId, yNodes)
     } else {
-      // Inherit from new parent
       newSide = newParent.side || 'right'
     }
     
-    // Update entire subtree to new side
     updateSubtreeSide(draggedNodeId, newSide, yNodes, yEdges)
     
-    // Update dragged node
     yNodes.set(draggedNodeId, {
       ...draggedNode,
       parentId: newParentId,
@@ -376,7 +358,6 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       autoAlign: true
     })
     
-    // Create new parent-child edge with correct handles
     const sourceHandle = newSide === 'left' ? 'source-left' : 'source-right'
     const targetHandle = newSide === 'left' ? 'target-right' : 'target-left'
     
@@ -500,16 +481,14 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     }
   }, [isCreatingConnection, cancelConnectionMode])
 
-  // Node drag start
+  // Node drag handlers
   const onNodeDragStart = useCallback((event, node) => {
     if (isReadOnly) return
     
     setDraggedNode(node.id)
-    
     const nodeData = yNodes.get(node.id)
     setDragStartPos(nodeData?.position)
     
-    // Hide connected edges
     const edgesArray = yEdges.toArray()
     const connectedEdgeIds = edgesArray
       .filter(e => e.source === node.id || e.target === node.id)
@@ -518,14 +497,12 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     setHiddenEdges(new Set(connectedEdgeIds))
   }, [yNodes, yEdges, isReadOnly])
 
-  // 🔥 FIX: Node drag stop - only move free node, not children
   const onNodeDragStop = useCallback((event, node) => {
     if (isReadOnly) return
     
     const nodeData = yNodes.get(node.id)
     if (!nodeData) return
     
-    // Check for reparent
     const dropTarget = nodes.find(n => {
       if (n.id === node.id || n.id === 'root-node') return false
       
@@ -539,15 +516,12 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     if (dropTarget) {
       handleReparent(node.id, dropTarget.id)
     } else if (nodeData.autoAlign) {
-      // Revert to original position
       yNodes.set(node.id, {
         ...nodeData,
         position: dragStartPos
       })
       setTimeout(() => applyLayout(), 100)
     } else {
-      // 🔥 FIX: For free nodes, just update position
-      // Update side based on new position
       const rootNode = yNodes.get('root-node')
       const newSide = determineFreeNodeSide(node.position.x, rootNode ? rootNode.position.x : 600)
       
@@ -557,7 +531,6 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         side: newSide
       })
       
-      // Update edges for this free node
       const edgesArray = yEdges.toArray()
       edgesArray.forEach((edge, idx) => {
         if (edge.isParentChild && edge.source === node.id) {
@@ -635,6 +608,16 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     }
   }, [isCreatingConnection, connectionSource])
 
+  // 🔥 Handle AI button click - Close all popups
+  const handleAIClick = () => {
+    setSelectedNode(null)
+    setToolbarPosition(null)
+    setIsCreatingConnection(false)
+    setConnectionSource(null)
+    setTempConnectionTarget(null)
+    setShowAIModal(true)
+  }
+
   return (
     <div 
       className="w-full h-full relative bg-gradient-to-br from-gray-50 to-gray-100"
@@ -662,30 +645,45 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         <MiniMap nodeColor={(node) => node.data.color || '#3b82f6'} />
       </ReactFlow>
 
+      {/* Floating Toolbar */}
       {selectedNode && toolbarPosition && !isReadOnly && !isCreatingConnection && (
         <FloatingToolbar
           selectedNode={selectedNode}
           position={toolbarPosition}
           yNodes={yNodes}
+          yEdges={yEdges}
           onToggleAutoAlign={() => handleToggleAutoAlign(selectedNode.id)}
           onStartConnection={handleStartConnectionMode}
           isCreatingConnection={isCreatingConnection}
         />
       )}
 
+      {/* Top Left Buttons */}
       {!isReadOnly && (
-        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2">
+        <div className="absolute top-4 left-4 flex flex-col space-y-2 z-10">
+          {/* Free Node Button */}
           <button
             onClick={handleAddFreeNode}
-            className="px-3 py-1.5 rounded text-sm bg-gray-100 hover:bg-gray-200 flex items-center space-x-1"
+            className="bg-white rounded-lg shadow-lg px-3 py-2 hover:shadow-xl transition flex items-center space-x-2"
             title="Add free node (draggable)"
           >
-            <PlusCircleIcon className="w-4 h-4" />
-            <span>Free Node</span>
+            <PlusCircleIcon className="w-5 h-5 text-gray-700" />
+            <span className="text-sm font-medium">Free Node</span>
+          </button>
+
+          {/* AI Assistant Button */}
+          <button
+            onClick={handleAIClick}
+            className="bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg shadow-lg px-3 py-2 hover:shadow-xl hover:from-purple-600 hover:to-blue-600 transition flex items-center space-x-2"
+            title="AI Assistant"
+          >
+            <SparklesIcon className="w-5 h-5" />
+            <span className="text-sm font-medium">AI Assistant</span>
           </button>
         </div>
       )}
 
+      {/* Active Users */}
       {awarenessStates.length > 0 && (
         <>
           {awarenessStates.map((state) => (
@@ -711,6 +709,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         </>
       )}
 
+      {/* Keyboard Shortcuts Help */}
       <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-3 text-xs text-gray-600 space-y-1">
         {isReadOnly ? (
           <p>👁️ View-only mode</p>
@@ -729,6 +728,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         )}
       </div>
 
+      {/* Connection Preview */}
       {isCreatingConnection && connectionSource && tempConnectionTarget && (
         <svg 
           className="absolute inset-0 pointer-events-none" 
@@ -759,6 +759,16 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
             markerEnd="url(#preview-arrow)"
           />
         </svg>
+      )}
+
+      {/* AI Assistant Modal */}
+      {showAIModal && (
+        <AIAssistantModal
+          mindmap={mindmap}
+          yNodes={yNodes}
+          yEdges={yEdges}
+          onClose={() => setShowAIModal(false)}
+        />
       )}
     </div>
   )

@@ -88,6 +88,8 @@ export const saveUserSnapshot = async (req, res) => {
     createdBy: req.user.id,
     reason: 'manual'
   });
+  mindmap.snapshot = Buffer.from(snapshot.encodedState, 'base64');
+  await mindmap.save();
 
   await Version.create({
     mindmapId: mindmap._id,
