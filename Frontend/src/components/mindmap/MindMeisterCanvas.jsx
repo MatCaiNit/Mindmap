@@ -321,7 +321,15 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     const newParent = yNodes.get(newParentId)
     
     if (!draggedNode || !newParent || draggedNodeId === newParentId) return
-    
+    const dragnode = yNodes.get(draggedNodeId)
+    if(dragnode.isFree){
+      yNodes.set(draggedNodeId, {
+        ...draggedNode,
+        level: newParent.level + 1,
+        autoAlign: true,
+      }
+      )
+    }
     let current = newParentId
     while (current) {
       if (current === draggedNodeId) {
@@ -347,7 +355,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     } else {
       newSide = newParent.side || 'right'
     }
-    
+
     updateSubtreeSide(draggedNodeId, newSide, yNodes, yEdges)
     
     yNodes.set(draggedNodeId, {

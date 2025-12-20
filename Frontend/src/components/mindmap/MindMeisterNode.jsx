@@ -233,7 +233,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
               title="Top"
             >
-              ⬆
+              +
             </div>
             
             <div
@@ -241,7 +241,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
               title="Right"
             >
-              ➡
+              +
             </div>
             
             <div
@@ -249,7 +249,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
               title="Bottom"
             >
-              ⬇
+              +
             </div>
             
             <div
@@ -257,7 +257,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
               title="Left"
             >
-              ⬅
+              +
             </div>
           </>
         )}

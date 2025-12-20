@@ -198,7 +198,7 @@ export default function AIAssistantModal({ mindmap, yNodes, yEdges, onClose }) {
                 disabled={generateMutation.isLoading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none disabled:bg-gray-50 disabled:cursor-not-allowed"
                 rows={4}
-                placeholder="E.g., 'Project planning for mobile app development' or 'Study guide for World War II'"
+                placeholder="E.g., 'Project planning for mobile app development' or 'Study guide for IT'"
                 autoFocus
               />
             </div>

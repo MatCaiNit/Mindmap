@@ -181,7 +181,7 @@ export default function DashboardPage() {
                 />
                 {!isOwner && mindmap.ownerId && (
                   <div className="mt-2 text-xs text-gray-500 flex items-center space-x-1">
-                    <span>Owner:</span>
+                    <span></span>
                     <span className="font-medium">
                       {mindmap.ownerId.name || mindmap.ownerId.email}
                     </span>

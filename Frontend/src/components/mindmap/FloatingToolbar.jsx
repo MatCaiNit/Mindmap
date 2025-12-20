@@ -329,7 +329,7 @@ export default function FloatingToolbar({
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <span style={{ fontSize: size.value }}>{size.label} - Sample</span>
+                  <span style={{ fontSize: size.value }}>{size.value}</span>
                 </button>
               ))}
             </div>
