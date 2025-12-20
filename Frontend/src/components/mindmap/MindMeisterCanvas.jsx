@@ -1,5 +1,5 @@
-// Frontend/src/components/mindmap/MindMeisterCanvas.jsx - FULL FEATURES
-
+// Frontend/src/components/mindmap/MindMeisterCanvas.jsx - FREE NODE FIXED
+import { useReactFlow } from 'reactflow'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import ReactFlow, {
   Background,
@@ -17,9 +17,11 @@ import CustomEdge from './CustomEdge'
 import FloatingToolbar from './FloatingToolbar'
 import Cursor from './Cursor'
 import { 
-  calculateTreeLayout,
+  calculateBalancedLayout,
   calculateNewNodePosition,
-  getSuggestedSide
+  getSuggestedSide,
+  updateSubtreeSide,
+  determineFreeNodeSide
 } from '../../lib/treeLayout'
 import { PlusCircleIcon } from '@heroicons/react/24/solid'
 
@@ -39,19 +41,23 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState(null)
   const [toolbarPosition, setToolbarPosition] = useState(null)
-  const [layoutMode, setLayoutMode] = useState('balanced')
+  
+  // Connection mode
   const [isCreatingConnection, setIsCreatingConnection] = useState(false)
-  const [connectionStart, setConnectionStart] = useState(null)
-  const [tempConnectionPos, setTempConnectionPos] = useState(null)
+  const [connectionSource, setConnectionSource] = useState(null)
+  const [tempConnectionTarget, setTempConnectionTarget] = useState(null)
+  
+  // Drag state
+  const [draggedNode, setDraggedNode] = useState(null)
+  const [dragStartPos, setDragStartPos] = useState(null)
+  const [hiddenEdges, setHiddenEdges] = useState(new Set())
   
   const user = useAuthStore((state) => state.user)
   const yNodes = ydoc.getMap('nodes')
   const yEdges = ydoc.getArray('edges')
-  const yMeta = ydoc.getMap('meta')
   const awarenessStates = useAwareness(awareness)
-  
+  const reactFlowInstance = useReactFlow()
   const isEditingRef = useRef(false)
-  const dragStartPosRef = useRef(null)
 
   // Setup awareness
   useEffect(() => {
@@ -100,7 +106,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     return BRANCH_COLORS[hash % BRANCH_COLORS.length]
   }, [yNodes])
 
-  // Add child
+  // Add child node
   const handleAddChild = useCallback((parentId) => {
     if (isReadOnly) return
     
@@ -109,26 +115,34 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     
     const newId = `node-${Date.now()}`
     const level = calculateLevel(parentId) + 1
-    const side = layoutMode === 'tree' ? 'right' : getSuggestedSide(parentId, yNodes)
+    
+    const isRoot = parentId === 'root-node'
+    let side
+    if (isRoot) {
+      // chỉ root mới được split
+      side = getSuggestedSide(parentId, yNodes)
+    } else {
+      // free node & mindmap node đều inherit
+      side = parent.side
+    }
+    
     const color = getBranchColor(parentId)
+    const position = calculateNewNodePosition(parentId, yNodes, side)
     
-    const position = calculateNewNodePosition(parentId, yNodes)
-    
+    // Create node with empty label and editing=true for auto-focus
     yNodes.set(newId, {
-      label: 'New Node',
+      label: '',
       position,
       parentId,
       level,
       color,
       side,
-      autoAlign: true, // 🔥 NEW: Mặc định bật auto-align
-      locked: false
+      autoAlign: true,
+      editing: true
     })
     
-    const sourceHandle = layoutMode === 'tree' ? 'source-right' : 
-                         (side === 'left' ? 'source-left' : 'source-right')
-    const targetHandle = layoutMode === 'tree' ? 'target-left' :
-                         (side === 'left' ? 'target-right' : 'target-left')
+    const sourceHandle = side === 'left' ? 'source-left' : 'source-right'
+    const targetHandle = side === 'left' ? 'target-right' : 'target-left'
     
     yEdges.push([{
       id: `e-${parentId}-${newId}`,
@@ -137,74 +151,62 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       sourceHandle,
       targetHandle,
       color,
-      isParentChild: true // 🔥 NEW: Mark as parent-child edge
+      isParentChild: true
     }])
     
-    setTimeout(() => applyLayout(layoutMode), 100)
-  }, [yNodes, yEdges, layoutMode, calculateLevel, getBranchColor, isReadOnly])
+    setTimeout(() => applyLayout(), 100)
+  }, [yNodes, yEdges, calculateLevel, getBranchColor, isReadOnly])
 
-  // 🔥 NEW: Add free node
+  // 🔥 FIX: Add free node with proper side determination
   const handleAddFreeNode = useCallback(() => {
-    if (isReadOnly) return
-    
-    const newId = `node-${Date.now()}`
-    
-    yNodes.set(newId, {
-      label: 'Free Node',
-      position: { x: 300, y: 300 }, // 🔥 Fixed position
-      parentId: null,
-      level: 1, // 🔥 Always level 1 style
-      color: '#64748b',
-      side: null,
-      autoAlign: false, // 🔥 Free node: NO auto-align
-      locked: false
-    })
-  }, [yNodes, isReadOnly])
+  if (isReadOnly) return
 
-  // Apply layout
-  const applyLayout = useCallback((mode) => {
-    const positions = calculateTreeLayout(yNodes, mode)
+  const newId = `node-${Date.now()}`
+
+  // Lấy viewport hiện tại
+  const { x, y, zoom } = reactFlowInstance.getViewport()
+
+  //  Lấy center màn hình (pixel)
+  const centerX = window.innerWidth / 2
+  const centerY = window.innerHeight / 2
+
+  //  Convert sang flow coordinate
+  const flowPosition = reactFlowInstance.project({
+    x: centerX,
+    y: centerY,
+  })
+
+  //  Xác định side theo root
+  const rootNode = yNodes.get('root-node')
+  const rootX = rootNode?.position?.x ?? flowPosition.x
+  const side = determineFreeNodeSide(flowPosition.x, rootX)
+
+  //  Tạo free node
+  yNodes.set(newId, {
+    label: 'Free Node',
+    position: flowPosition,
+    parentId: null,
+    level: 1,
+    color: '#64748b',
+    side,
+    autoAlign: false, // 🔒 free node không auto-align
+    isFree: true
+  })
+}, [reactFlowInstance, yNodes, isReadOnly])
+
+  // Apply layout (balanced only)
+  const applyLayout = useCallback(() => {
+    const positions = calculateBalancedLayout(yNodes)
     
     positions.forEach((pos, nodeId) => {
       const node = yNodes.get(nodeId)
-      if (node && node.autoAlign !== false) { // 🔥 Only auto-align if enabled
+      if (node && node.autoAlign !== false && !node.isFree) {
         yNodes.set(nodeId, { ...node, position: pos })
       }
     })
-    
-    // Update edge handles
-    const edgesArray = yEdges.toArray()
-    edgesArray.forEach((edge, idx) => {
-      if (edge.isParentChild) { // 🔥 Only update parent-child edges
-        const source = yNodes.get(edge.source)
-        const target = yNodes.get(edge.target)
-        
-        if (source && target) {
-          let sourceHandle, targetHandle
-          
-          if (mode === 'tree') {
-            sourceHandle = 'source-right'
-            targetHandle = 'target-left'
-          } else {
-            const side = target.side || 'right'
-            sourceHandle = side === 'left' ? 'source-left' : 'source-right'
-            targetHandle = side === 'left' ? 'target-right' : 'target-left'
-          }
-          
-          yEdges.delete(idx, 1)
-          yEdges.insert(idx, [{
-            ...edge,
-            sourceHandle,
-            targetHandle
-          }])
-        }
-      }
-    })
-    
-    yMeta.set('layout', mode)
-  }, [yNodes, yEdges, yMeta])
+  }, [yNodes])
 
-  // 🔥 NEW: Toggle auto-align
+  // Toggle auto-align
   const handleToggleAutoAlign = useCallback((nodeId) => {
     const node = yNodes.get(nodeId)
     if (node && nodeId !== 'root-node') {
@@ -213,45 +215,82 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         autoAlign: !node.autoAlign
       })
       
-      if (!node.autoAlign) { // If turning ON
-        setTimeout(() => applyLayout(layoutMode), 100)
+      if (!node.autoAlign) {
+        setTimeout(() => applyLayout(), 100)
       }
     }
-  }, [yNodes, layoutMode, applyLayout])
+  }, [yNodes, applyLayout])
 
-  // 🔥 NEW: Start creating connection
-  const handleStartConnection = useCallback((nodeId, handleId) => {
+  // Start connection mode
+  const handleStartConnectionMode = useCallback(() => {
     if (isReadOnly) return
-    
     setIsCreatingConnection(true)
-    setConnectionStart({ nodeId, handleId })
+    setToolbarPosition(null)
   }, [isReadOnly])
 
-  // 🔥 NEW: Complete connection
-  const handleCompleteConnection = useCallback((targetNodeId, targetHandleId) => {
-    if (!connectionStart || isReadOnly) return
-    
-    const newEdge = {
-      id: `custom-${Date.now()}`,
-      source: connectionStart.nodeId,
-      target: targetNodeId,
-      sourceHandle: connectionStart.handleId,
-      targetHandle: targetHandleId,
-      color: '#3b82f6',
-      width: 2,
-      style: 'solid',
-      isParentChild: false,
-      curvature: 0.5
-    }
-    
-    yEdges.push([newEdge])
-    
+  // Cancel connection mode
+  const cancelConnectionMode = useCallback(() => {
     setIsCreatingConnection(false)
-    setConnectionStart(null)
-    setTempConnectionPos(null)
-  }, [connectionStart, yEdges, isReadOnly])
+    setConnectionSource(null)
+    setTempConnectionTarget(null)
+  }, [])
 
-  // Handle edge updates
+  // Handle anchor click
+  const handleAnchorClick = useCallback((nodeId, anchor, event) => {
+    if (!isCreatingConnection) return
+    
+    if (!connectionSource) {
+      const nodeElement = event.target.closest('.react-flow__node')
+      if (!nodeElement) return
+      
+      const rect = nodeElement.getBoundingClientRect()
+      let x, y
+      
+      switch (anchor) {
+        case 'top':
+          x = rect.left + rect.width / 2
+          y = rect.top
+          break
+        case 'right':
+          x = rect.right
+          y = rect.top + rect.height / 2
+          break
+        case 'bottom':
+          x = rect.left + rect.width / 2
+          y = rect.bottom
+          break
+        case 'left':
+          x = rect.left
+          y = rect.top + rect.height / 2
+          break
+      }
+      
+      setConnectionSource({ nodeId, anchor, x, y })
+    } else {
+      if (connectionSource.nodeId === nodeId) {
+        cancelConnectionMode()
+        return
+      }
+      
+      const newEdge = {
+        id: `custom-${Date.now()}`,
+        source: connectionSource.nodeId,
+        target: nodeId,
+        sourceHandle: `source-${connectionSource.anchor}`,
+        targetHandle: `target-${anchor}`,
+        color: '#3b82f6',
+        width: 2,
+        style: 'solid',
+        isParentChild: false,
+        curvature: 0.25
+      }
+      
+      yEdges.push([newEdge])
+      cancelConnectionMode()
+    }
+  }, [isCreatingConnection, connectionSource, yEdges, cancelConnectionMode])
+
+  // Update edge
   const handleUpdateEdge = useCallback((edgeId, updates) => {
     if (isReadOnly) return
     
@@ -260,12 +299,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     
     if (edgeIndex !== -1) {
       const edge = edgesArray[edgeIndex]
-      
-      // 🔥 Prevent editing parent-child edges
-      if (edge.isParentChild) {
-        console.warn('Cannot edit parent-child edge')
-        return
-      }
+      if (edge.isParentChild) return
       
       yEdges.delete(edgeIndex, 1)
       yEdges.insert(edgeIndex, [{ ...edge, ...updates }])
@@ -281,10 +315,8 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     
     if (edgeIndex !== -1) {
       const edge = edgesArray[edgeIndex]
-      
-      // 🔥 Prevent deleting parent-child edges
       if (edge.isParentChild) {
-        alert('Cannot delete parent-child relationship edge')
+        alert('Cannot delete parent-child edge')
         return
       }
       
@@ -292,7 +324,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     }
   }, [yEdges, isReadOnly])
 
-  // 🔥 NEW: Reparent node (drag node into another node)
+  // Reparent node with subtree update
   const handleReparent = useCallback((draggedNodeId, newParentId) => {
     if (isReadOnly) return
     
@@ -322,21 +354,31 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       yEdges.delete(oldEdgeIdx, 1)
     }
     
-    // Update node
-    const side = layoutMode === 'tree' ? 'right' : getSuggestedSide(newParentId, yNodes)
+    // Determine new side
+    let newSide
+    if (!newParent.parentId) {
+      // New parent is root
+      newSide = getSuggestedSide(newParentId, yNodes)
+    } else {
+      // Inherit from new parent
+      newSide = newParent.side || 'right'
+    }
+    
+    // Update entire subtree to new side
+    updateSubtreeSide(draggedNodeId, newSide, yNodes, yEdges)
+    
+    // Update dragged node
     yNodes.set(draggedNodeId, {
       ...draggedNode,
       parentId: newParentId,
-      side,
+      side: newSide,
       color: newParent.color,
-      autoAlign: true // 🔥 Enable auto-align when reparenting
+      autoAlign: true
     })
     
-    // Create new parent-child edge
-    const sourceHandle = layoutMode === 'tree' ? 'source-right' :
-                         (side === 'left' ? 'source-left' : 'source-right')
-    const targetHandle = layoutMode === 'tree' ? 'target-left' :
-                         (side === 'left' ? 'target-right' : 'target-left')
+    // Create new parent-child edge with correct handles
+    const sourceHandle = newSide === 'left' ? 'source-left' : 'source-right'
+    const targetHandle = newSide === 'left' ? 'target-right' : 'target-left'
     
     yEdges.push([{
       id: `e-${newParentId}-${draggedNodeId}`,
@@ -348,8 +390,8 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       isParentChild: true
     }])
     
-    setTimeout(() => applyLayout(layoutMode), 100)
-  }, [yNodes, yEdges, layoutMode, isReadOnly, applyLayout])
+    setTimeout(() => applyLayout(), 100)
+  }, [yNodes, yEdges, isReadOnly, applyLayout])
 
   // Sync Yjs to React Flow
   useEffect(() => {
@@ -372,37 +414,39 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
             isReadOnly,
             isRoot,
             autoAlign,
-            layoutMode,
+            isCreatingConnection,
             onAddChild: handleAddChild,
             onToggleAutoAlign: handleToggleAutoAlign,
-            onStartConnection: handleStartConnection,
+            onAnchorClick: handleAnchorClick,
             onEditingChange: (editing) => {
               isEditingRef.current = editing
             }
           },
-          draggable: !isReadOnly && !isRoot && !autoAlign, // 🔥 Can't drag if root or auto-align
+          draggable: !isReadOnly && !isRoot,
         })
       })
       
       setNodes(nodesData)
 
-      const edgesData = yEdges.toArray().map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
-        type: 'custom',
-        data: { 
-          color: edge.color || '#3b82f6',
-          width: edge.width || 2,
-          style: edge.style || 'solid',
-          isParentChild: edge.isParentChild || false,
-          curvature: edge.curvature || 0.25,
-          onUpdateEdge: handleUpdateEdge,
-          onDeleteEdge: handleDeleteEdge,
-        },
-      }))
+      const edgesData = yEdges.toArray()
+        .filter(edge => !hiddenEdges.has(edge.id))
+        .map((edge) => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+          type: 'custom',
+          data: { 
+            color: edge.color || '#3b82f6',
+            width: edge.width || 2,
+            style: edge.style || 'solid',
+            isParentChild: edge.isParentChild || false,
+            curvature: edge.curvature || 0.25,
+            onUpdateEdge: handleUpdateEdge,
+            onDeleteEdge: handleDeleteEdge,
+          },
+        }))
       
       setEdges(edgesData)
     }
@@ -416,7 +460,8 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       yEdges.unobserve(updateFromYjs)
     }
   }, [yNodes, yEdges, calculateLevel, getBranchColor, handleAddChild, handleToggleAutoAlign, 
-      handleStartConnection, handleUpdateEdge, handleDeleteEdge, isReadOnly, layoutMode])
+      handleAnchorClick, handleUpdateEdge, handleDeleteEdge, isReadOnly, 
+      isCreatingConnection, hiddenEdges])
 
   // Initialize root
   useEffect(() => {
@@ -428,21 +473,14 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         level: 0,
         parentId: null,
         side: null,
-        autoAlign: true,
-        locked: true // 🔥 Root is always locked
+        autoAlign: true
       })
     }
   }, [yNodes, mindmap.title, isReadOnly])
 
   // Node click
   const onNodeClick = useCallback((event, node) => {
-    if (isReadOnly) return
-    
-    // 🔥 If creating connection, complete it
-    if (isCreatingConnection && node.id !== connectionStart?.nodeId) {
-      // Show connection points
-      return
-    }
+    if (isReadOnly || isCreatingConnection) return
     
     setSelectedNode(node)
     const nodeElement = event.target.closest('.react-flow__node')
@@ -450,37 +488,44 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       const rect = nodeElement.getBoundingClientRect()
       setToolbarPosition({ x: rect.left + rect.width / 2, y: rect.top })
     }
-  }, [isReadOnly, isCreatingConnection, connectionStart])
+  }, [isReadOnly, isCreatingConnection])
 
   // Clear selection
   const onPaneClick = useCallback(() => {
     setSelectedNode(null)
     setToolbarPosition(null)
     
-    // Cancel connection creation
     if (isCreatingConnection) {
-      setIsCreatingConnection(false)
-      setConnectionStart(null)
-      setTempConnectionPos(null)
+      cancelConnectionMode()
     }
-  }, [isCreatingConnection])
+  }, [isCreatingConnection, cancelConnectionMode])
 
-  // 🔥 NEW: Node drag start
+  // Node drag start
   const onNodeDragStart = useCallback((event, node) => {
     if (isReadOnly) return
     
+    setDraggedNode(node.id)
+    
     const nodeData = yNodes.get(node.id)
-    dragStartPosRef.current = nodeData?.position
-  }, [yNodes, isReadOnly])
+    setDragStartPos(nodeData?.position)
+    
+    // Hide connected edges
+    const edgesArray = yEdges.toArray()
+    const connectedEdgeIds = edgesArray
+      .filter(e => e.source === node.id || e.target === node.id)
+      .map(e => e.id)
+    
+    setHiddenEdges(new Set(connectedEdgeIds))
+  }, [yNodes, yEdges, isReadOnly])
 
-  // Node drag stop
+  // 🔥 FIX: Node drag stop - only move free node, not children
   const onNodeDragStop = useCallback((event, node) => {
     if (isReadOnly) return
     
     const nodeData = yNodes.get(node.id)
     if (!nodeData) return
     
-    // 🔥 Check if dropped on another node
+    // Check for reparent
     const dropTarget = nodes.find(n => {
       if (n.id === node.id || n.id === 'root-node') return false
       
@@ -488,26 +533,54 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
       const dy = n.position.y - node.position.y
       const dist = Math.sqrt(dx * dx + dy * dy)
       
-      return dist < 100 // Within 100px
+      return dist < 50
     })
     
     if (dropTarget) {
-      // Reparent
       handleReparent(node.id, dropTarget.id)
     } else if (nodeData.autoAlign) {
-      // 🔥 If auto-align enabled, revert to original position
+      // Revert to original position
       yNodes.set(node.id, {
         ...nodeData,
-        position: dragStartPosRef.current
+        position: dragStartPos
       })
-      setTimeout(() => applyLayout(layoutMode), 100)
+      setTimeout(() => applyLayout(), 100)
     } else {
-      // Update position for non-auto-align nodes
-      yNodes.set(node.id, { ...nodeData, position: node.position })
+      // 🔥 FIX: For free nodes, just update position
+      // Update side based on new position
+      const rootNode = yNodes.get('root-node')
+      const newSide = determineFreeNodeSide(node.position.x, rootNode ? rootNode.position.x : 600)
+      
+      yNodes.set(node.id, { 
+        ...nodeData, 
+        position: node.position,
+        side: newSide
+      })
+      
+      // Update edges for this free node
+      const edgesArray = yEdges.toArray()
+      edgesArray.forEach((edge, idx) => {
+        if (edge.isParentChild && edge.source === node.id) {
+          const targetNode = yNodes.get(edge.target)
+          if (targetNode) {
+            const sourceHandle = newSide === 'left' ? 'source-left' : 'source-right'
+            const targetHandle = newSide === 'left' ? 'target-right' : 'target-left'
+            
+            yEdges.delete(idx, 1)
+            yEdges.insert(idx, [{
+              ...edge,
+              sourceHandle,
+              targetHandle
+            }])
+          }
+        }
+      })
     }
     
-    dragStartPosRef.current = null
-  }, [yNodes, nodes, layoutMode, isReadOnly, handleReparent, applyLayout])
+    setHiddenEdges(new Set())
+    setDraggedNode(null)
+    setDragStartPos(null)
+  }, [yNodes, yEdges, nodes, isReadOnly, handleReparent, applyLayout, dragStartPos])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -515,6 +588,13 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     
     const handleKeyDown = (e) => {
       if (isEditingRef.current) return
+      if (!selectedNode && !isCreatingConnection) return
+      
+      if (e.key === 'Escape' && isCreatingConnection) {
+        cancelConnectionMode()
+        return
+      }
+      
       if (!selectedNode) return
       
       if (e.key === 'Tab') {
@@ -545,18 +625,15 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [selectedNode, handleAddChild, yNodes, isReadOnly])
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedNode, handleAddChild, yNodes, isReadOnly, isCreatingConnection, cancelConnectionMode])
 
-  // 🔥 Mouse move for connection preview
+  // Mouse move for connection preview
   const handleMouseMove = useCallback((event) => {
-    if (isCreatingConnection) {
-      setTempConnectionPos({ x: event.clientX, y: event.clientY })
+    if (isCreatingConnection && connectionSource) {
+      setTempConnectionTarget({ x: event.clientX, y: event.clientY })
     }
-  }, [isCreatingConnection])
+  }, [isCreatingConnection, connectionSource])
 
   return (
     <div 
@@ -585,40 +662,19 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         <MiniMap nodeColor={(node) => node.data.color || '#3b82f6'} />
       </ReactFlow>
 
-      {/* Toolbar */}
-      {selectedNode && toolbarPosition && !isReadOnly && (
+      {selectedNode && toolbarPosition && !isReadOnly && !isCreatingConnection && (
         <FloatingToolbar
           selectedNode={selectedNode}
           position={toolbarPosition}
           yNodes={yNodes}
           onToggleAutoAlign={() => handleToggleAutoAlign(selectedNode.id)}
-          onStartConnection={handleStartConnection}
+          onStartConnection={handleStartConnectionMode}
           isCreatingConnection={isCreatingConnection}
         />
       )}
 
-      {/* Layout + Add Free Node */}
       {!isReadOnly && (
-        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 flex items-center space-x-2">
-          <button
-            onClick={() => { setLayoutMode('balanced'); applyLayout('balanced') }}
-            className={`px-3 py-1.5 rounded text-sm ${
-              layoutMode === 'balanced' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-            }`}
-          >
-            Balanced
-          </button>
-          <button
-            onClick={() => { setLayoutMode('tree'); applyLayout('tree') }}
-            className={`px-3 py-1.5 rounded text-sm ${
-              layoutMode === 'tree' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-            }`}
-          >
-            Tree
-          </button>
-          
-          <div className="w-px h-6 bg-gray-300" />
-          
+        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2">
           <button
             onClick={handleAddFreeNode}
             className="px-3 py-1.5 rounded text-sm bg-gray-100 hover:bg-gray-200 flex items-center space-x-1"
@@ -630,7 +686,6 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         </div>
       )}
 
-      {/* Online users */}
       {awarenessStates.length > 0 && (
         <>
           {awarenessStates.map((state) => (
@@ -656,10 +711,15 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         </>
       )}
 
-      {/* Help */}
       <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-4 py-3 text-xs text-gray-600 space-y-1">
         {isReadOnly ? (
           <p>👁️ View-only mode</p>
+        ) : isCreatingConnection ? (
+          <>
+            <p>🔗 <strong>Connection Mode</strong></p>
+            <p>Hover node → Click anchor → Repeat</p>
+            <p><kbd>ESC</kbd> Cancel</p>
+          </>
         ) : (
           <>
             <p><kbd>Tab</kbd> Add child | <kbd>Enter</kbd> Add sibling</p>
@@ -669,17 +729,34 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
         )}
       </div>
 
-      {/* 🔥 Connection Preview */}
-      {isCreatingConnection && connectionStart && tempConnectionPos && (
-        <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 1000 }}>
-          <line
-            x1={connectionStart.x || 0}
-            y1={connectionStart.y || 0}
-            x2={tempConnectionPos.x}
-            y2={tempConnectionPos.y}
+      {isCreatingConnection && connectionSource && tempConnectionTarget && (
+        <svg 
+          className="absolute inset-0 pointer-events-none" 
+          style={{ zIndex: 1000 }}
+        >
+          <defs>
+            <marker
+              id="preview-arrow"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L9,3 z" fill="#3b82f6" />
+            </marker>
+          </defs>
+          <path
+            d={`M ${connectionSource.x},${connectionSource.y} Q ${
+              (connectionSource.x + tempConnectionTarget.x) / 2
+            },${
+              (connectionSource.y + tempConnectionTarget.y) / 2
+            } ${tempConnectionTarget.x},${tempConnectionTarget.y}`}
             stroke="#3b82f6"
             strokeWidth="2"
             strokeDasharray="5,5"
+            fill="none"
+            markerEnd="url(#preview-arrow)"
           />
         </svg>
       )}

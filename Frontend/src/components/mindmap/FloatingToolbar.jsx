@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/FloatingToolbar.jsx - FULL FEATURES
+// Frontend/src/components/mindmap/FloatingToolbar.jsx - COMBINED VERSION
 
 import { useState, useEffect, useRef } from 'react'
 import {
@@ -36,7 +36,6 @@ export default function FloatingToolbar({
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [showTextColorPicker, setShowTextColorPicker] = useState(false)
   const [showFontSize, setShowFontSize] = useState(false)
-  const [showConnectionHandles, setShowConnectionHandles] = useState(false)
   const toolbarRef = useRef(null)
 
   const currentNode = yNodes.get(selectedNode.id) || {}
@@ -50,7 +49,6 @@ export default function FloatingToolbar({
         setShowColorPicker(false)
         setShowTextColorPicker(false)
         setShowFontSize(false)
-        setShowConnectionHandles(false)
       }
     }
 
@@ -98,37 +96,8 @@ export default function FloatingToolbar({
   }
 
   const handleConnectionClick = () => {
-    setShowConnectionHandles(!showConnectionHandles)
-  }
-
-  const handleStartConnectionFromHandle = (handleId) => {
-    // Get node screen position
-    const nodeElement = document.querySelector(`[data-id="${selectedNode.id}"]`)
-    if (nodeElement) {
-      const rect = nodeElement.getBoundingClientRect()
-      
-      let x, y
-      switch (handleId) {
-        case 'source-top':
-          x = rect.left + rect.width / 2
-          y = rect.top
-          break
-        case 'source-right':
-          x = rect.right
-          y = rect.top + rect.height / 2
-          break
-        case 'source-bottom':
-          x = rect.left + rect.width / 2
-          y = rect.bottom
-          break
-        case 'source-left':
-          x = rect.left
-          y = rect.top + rect.height / 2
-          break
-      }
-      
-      onStartConnection(selectedNode.id, handleId, { x, y })
-      setShowConnectionHandles(false)
+    if (onStartConnection) {
+      onStartConnection()
     }
   }
 
@@ -144,7 +113,7 @@ export default function FloatingToolbar({
         transform: 'translateX(-50%)'
       }}
     >
-      {/* Auto-Align Lock */}
+      {/* Auto-Align Lock - Not for root */}
       {!isRoot && (
         <>
           <button
@@ -248,7 +217,7 @@ export default function FloatingToolbar({
         <button
           onClick={() => setShowColorPicker(!showColorPicker)}
           className="p-2 rounded hover:bg-gray-100 transition"
-          title="Node Background Color"
+          title="Node Background"
         >
           <div 
             className="w-6 h-6 rounded border-2 border-gray-300"
@@ -273,7 +242,6 @@ export default function FloatingToolbar({
                       : 'border-gray-300'
                   }`}
                   style={{ backgroundColor: color }}
-                  title={color}
                 />
               ))}
             </div>
@@ -314,7 +282,6 @@ export default function FloatingToolbar({
                       : 'border-gray-300'
                   }`}
                   style={{ backgroundColor: color }}
-                  title={color}
                 />
               ))}
             </div>
@@ -322,69 +289,18 @@ export default function FloatingToolbar({
         )}
       </div>
 
-      {/* Add Connection */}
-      <div className="relative">
-        <button
-          onClick={handleConnectionClick}
-          className={`p-2 rounded transition ${
-            showConnectionHandles || isCreatingConnection
-              ? 'bg-blue-100 text-blue-600' 
-              : 'hover:bg-gray-100 text-gray-700'
-          }`}
-          title="Create Custom Connection"
-        >
-          <LinkIcon className="w-5 h-5" />
-        </button>
-
-        {showConnectionHandles && (
-          <div 
-            className="absolute top-12 left-1/2 -translate-x-1/2 bg-white rounded-lg shadow-xl border border-gray-200 p-3 z-[100]"
-          >
-            <p className="text-xs font-medium text-gray-700 mb-3 text-center">
-              Select connection point:
-            </p>
-            <div className="grid grid-cols-3 gap-2" style={{ width: '120px' }}>
-              <div></div>
-              <button
-                onClick={() => handleStartConnectionFromHandle('source-top')}
-                className="w-10 h-10 rounded bg-blue-100 hover:bg-blue-200 flex items-center justify-center"
-                title="Top"
-              >
-                ⬆️
-              </button>
-              <div></div>
-              
-              <button
-                onClick={() => handleStartConnectionFromHandle('source-left')}
-                className="w-10 h-10 rounded bg-blue-100 hover:bg-blue-200 flex items-center justify-center"
-                title="Left"
-              >
-                ⬅️
-              </button>
-              <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-xs">
-                Node
-              </div>
-              <button
-                onClick={() => handleStartConnectionFromHandle('source-right')}
-                className="w-10 h-10 rounded bg-blue-100 hover:bg-blue-200 flex items-center justify-center"
-                title="Right"
-              >
-                ➡️
-              </button>
-              
-              <div></div>
-              <button
-                onClick={() => handleStartConnectionFromHandle('source-bottom')}
-                className="w-10 h-10 rounded bg-blue-100 hover:bg-blue-200 flex items-center justify-center"
-                title="Bottom"
-              >
-                ⬇️
-              </button>
-              <div></div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Custom Connection Button */}
+      <button
+        onClick={handleConnectionClick}
+        className={`p-2 rounded transition ${
+          isCreatingConnection
+            ? 'bg-blue-100 text-blue-600' 
+            : 'hover:bg-gray-100 text-gray-700'
+        }`}
+        title="Add Custom Connection"
+      >
+        <LinkIcon className="w-5 h-5" />
+      </button>
     </div>
   )
 }
