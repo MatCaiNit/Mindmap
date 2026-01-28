@@ -1,4 +1,4 @@
-// Realtime/server.js - FINAL FIX: Proper Awareness Cleanup
+// Realtime/server.js - FIXED: Add bindState() to trigger auto-save
 
 const http = require('http')
 const WebSocket = require('ws')
@@ -10,7 +10,6 @@ const { authenticate } = require('./utils/auth')
 const { persistence } = require('./utils/persist')
 const { CONFIG } = require('./config')
 
-// Global state
 if (!global.mindmapDocs) {
   global.mindmapDocs = new Map()
 }
@@ -36,9 +35,6 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ noServer: true })
 
-// ==========================================
-// BROADCAST RESTORE
-// ==========================================
 async function handleBroadcastRestore(req, res) {
   const headerToken = req.headers['x-service-token']
   
@@ -118,9 +114,6 @@ async function handleBroadcastRestore(req, res) {
   })
 }
 
-// ==========================================
-// GET SNAPSHOT
-// ==========================================
 async function handleGetSnapshot(req, res) {
   const headerToken = req.headers['x-service-token']
   if (!headerToken || headerToken !== CONFIG.SERVICE_TOKEN) {
@@ -161,9 +154,7 @@ async function handleGetSnapshot(req, res) {
   }
 }
 
-// ==========================================
-// 🔥 WEBSOCKET CONNECTION - SIMPLIFIED AWARENESS
-// ==========================================
+// 🔥 CRITICAL FIX: Setup persistence khi client connect
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
   
@@ -174,12 +165,37 @@ function setupWSConnectionWithTracking(ws, req, options) {
     activeDocs.set(docName, room)
     console.log(`📡 CONNECTED: ${docName} (${room.conns?.size || 0} total clients)`)
     
-    ws.on('close', () => {
-      console.log(`❌ DISCONNECTING: ${docName}`)
+    // 🔥 FIX: Setup auto-save khi client đầu tiên connect
+    if (room.conns?.size === 1 && !room._persistenceSetup) {
+      console.log('🔧 Setting up persistence for first client...')
+      
+      persistence.bindState(docName, room)
+        .then(() => {
+          room._persistenceSetup = true
+          console.log(' Persistence setup complete')
+        })
+        .catch(err => {
+          console.error(' Persistence setup failed:', err.message)
+          // Vẫn setup auto-save listener dù load fail
+          persistence.setupAutoSave(docName, room)
+          room._persistenceSetup = true
+        })
+    }
+    
+    ws.on('close', async () => {
+      console.log(`  DISCONNECTING: ${docName}`)
       console.log(`   Remaining clients: ${room.conns?.size || 0}`)
       
-      // Let y-websocket handle awareness cleanup automatically
-      // No manual intervention needed
+      // Force save nếu là client cuối
+      if (room.conns?.size === 1) {
+        console.log('💾 FORCE SAVE (last client disconnecting)...')
+        try {
+          await persistence.writeState(docName, room)
+          console.log('  Final save completed')
+        } catch (err) {
+          console.error('  Final save failed:', err.message)
+        }
+      }
       
       if (room.conns?.size === 0) {
         setTimeout(() => {
@@ -187,7 +203,8 @@ function setupWSConnectionWithTracking(ws, req, options) {
           if (!check || check.conns?.size === 0) {
             activeDocs.delete(docName)
             mapUtils.docs.delete(docName)
-            console.log(`🗑️ GC: ${docName} (no clients for 30s)`)
+            persistence.cleanup(docName)
+            console.log(`  GC: ${docName} (no clients for 30s)`)
           }
         }, 30000)
       }
@@ -195,9 +212,6 @@ function setupWSConnectionWithTracking(ws, req, options) {
   }
 }
 
-// ==========================================
-// SERVER INIT
-// ==========================================
 server.on('upgrade', async (req, socket, head) => {
   try {
     const ctx = await authenticate(req)
@@ -216,7 +230,7 @@ server.on('upgrade', async (req, socket, head) => {
       })
     })
   } catch (err) {
-    console.error('❌ Upgrade error:', err)
+    console.error(' Upgrade error:', err)
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
     socket.destroy()
   }
@@ -233,6 +247,7 @@ server.listen(CONFIG.PORT, () => {
   console.log('========================================')
   console.log('   URL:', `ws://localhost:${CONFIG.PORT}`)
   console.log('   Backend:', CONFIG.BACKEND_URL)
-  console.log('   Service Token:', CONFIG.SERVICE_TOKEN ? '✅ SET' : '❌ NOT SET')
+  console.log('   Auto-save:', '3 seconds after changes')
+  console.log('   Force-save:', 'On last client disconnect')
   console.log('========================================\n')
 })

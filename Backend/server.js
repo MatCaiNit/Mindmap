@@ -16,15 +16,13 @@ if (!process.env.REALTIME_SERVICE_TOKEN) {
   process.exit(1);
 }
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev_secret') {
-  console.warn('⚠️  WARNING: Using default JWT_SECRET. Change this in production!');
-}
+
 
 try {
   await connectDB(process.env.MONGO_URI || 'mongodb://localhost:27017/mindmap');
   app.listen(PORT, () => {
-    console.log(`✅ Backend Server running on http://localhost:${PORT}`);
-    console.log(`📡 Realtime Server URL: ${process.env.REALTIME_NOTIFY_URL || 'Not configured'}`);
+    console.log(` Backend Server running on http://localhost:${PORT}`);
+    console.log(` Realtime Server URL: ${process.env.REALTIME_NOTIFY_URL || 'Not configured'}`);
     console.log("Realtime JWT_SECRET =", process.env.JWT_SECRET)
     console.log("REALTIME_SERVICE_TOKEN is set =", process.env.REALTIME_SERVICE_TOKEN);
   });

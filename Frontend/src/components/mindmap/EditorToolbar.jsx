@@ -59,7 +59,7 @@ export default function EditorToolbar({
   const saveMutation = useMutation({
     mutationFn: (label) => versionService.saveManualVersion(mindmap._id, label),
     onSuccess: () => {
-      alert('✅ Version saved successfully!')
+      alert(' Version saved successfully!')
       setShowSaveModal(false)
       setSaveLabel('')
     },

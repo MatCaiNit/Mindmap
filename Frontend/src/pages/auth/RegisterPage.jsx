@@ -179,7 +179,7 @@ export default function RegisterPage() {
                 value={formData.name}
                 onChange={handleChange}
                 className={`input ${errors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
-                placeholder="John Doe"
+                placeholder="Your Name"
               />
               {errors.name && (
                 <p className="mt-1 text-xs text-red-600">{errors.name}</p>
@@ -197,7 +197,7 @@ export default function RegisterPage() {
                 value={formData.email}
                 onChange={handleChange}
                 className={`input ${errors.email ? 'border-red-500 focus:ring-red-500' : ''}`}
-                placeholder="you@example.com"
+                placeholder="your_email@gmail.com"
               />
               {errors.email && (
                 <p className="mt-1 text-xs text-red-600">{errors.email}</p>

@@ -62,7 +62,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="input"
-                placeholder="you@example.com"
+                placeholder="your_email@gmail.com"
                 required
                 autoFocus
               />
@@ -137,7 +137,7 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            Protected by industry-standard encryption
+            
           </p>
         </div>
       </div>

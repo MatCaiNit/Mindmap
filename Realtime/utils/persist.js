@@ -6,9 +6,10 @@ const { CONFIG } = require('../config');
 const { validateSnapshotSchema } = require('./schema');
 const { createSnapshotFromDoc } = require('./snapshot');
 
-// 🔥 Auto-save interval: 10 seconds
-const AUTOSAVE_INTERVAL = 10000;
+const AUTOSAVE_INTERVAL = 3000;
+const MIN_SAVE_INTERVAL = 2000; // Tránh spam save liên tiếp
 const saveTimers = new Map();
+const lastSaveTime = new Map(); //  Track lần save cuối
 
 module.exports.persistence = {
   async bindState(docName, ydoc) {
@@ -74,7 +75,6 @@ module.exports.persistence = {
     }
   },
 
-  // 🔥 NEW: Setup auto-save on document updates
   setupAutoSave(docName, ydoc) {
     // Clear existing timer
     if (saveTimers.has(docName)) {
@@ -104,7 +104,7 @@ module.exports.persistence = {
 
     ydoc.on('update', updateHandler);
 
-    console.log('✅ Auto-save enabled (every 10s after changes)');
+    console.log('✅ Auto-save enabled (every 3s after changes)');
   },
 
   async writeState(docName, ydoc) {
@@ -113,7 +113,15 @@ module.exports.persistence = {
     console.log('========================================');
     console.log('Document:', docName);
     
-    // 🔥 Validate there's actual content
+    const now = Date.now();
+    const lastSave = lastSaveTime.get(docName) || 0;
+    
+    if (now - lastSave < MIN_SAVE_INTERVAL) {
+      console.log(' Skipping save (too soon - only ' + (now - lastSave) + 'ms since last save)');
+      console.log('========================================\n');
+      return;
+    }
+    
     const nodes = ydoc.getMap('nodes');
     const edges = ydoc.getArray('edges');
     
@@ -133,7 +141,6 @@ module.exports.persistence = {
     console.log('   Nodes:', nodes.size);
     console.log('   Edges:', edges.length);
     
-    // 🔥 Log actual node data
     console.log('   📊 NODE DATA:');
     nodes.forEach((value, key) => {
       console.log(`      ${key}: ${value.label || '(empty)'}`);
@@ -149,8 +156,12 @@ module.exports.persistence = {
         }
       );
       
+      // Cập nhật thời gian save
+      lastSaveTime.set(docName, now);
+      
       console.log('✅ Saved to backend');
       console.log('   Response:', response.data);
+      console.log('   Time since last save:', now - lastSave + 'ms');
       console.log('========================================\n');
     } catch (err) {
       console.error('❌ Failed to save:', err.message);
@@ -163,12 +174,14 @@ module.exports.persistence = {
     }
   },
 
-  // 🔥 NEW: Manual cleanup function
   cleanup(docName) {
     if (saveTimers.has(docName)) {
       clearTimeout(saveTimers.get(docName));
       saveTimers.delete(docName);
       console.log(`🧹 Cleared auto-save timer for ${docName}`);
     }
+    
+    // Xóa tracking time
+    lastSaveTime.delete(docName);
   }
 };
