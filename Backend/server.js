@@ -1,4 +1,3 @@
-// Backend/server.js
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -10,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 
 
 if (!process.env.REALTIME_SERVICE_TOKEN) {
-  console.error('❌ CRITICAL: REALTIME_SERVICE_TOKEN is not set!');
+  console.error(' CRITICAL: REALTIME_SERVICE_TOKEN is not set!');
   console.error('   This token is required for secure communication with Realtime Server.');
   console.error('   Generate one with: openssl rand -hex 32');
   process.exit(1);

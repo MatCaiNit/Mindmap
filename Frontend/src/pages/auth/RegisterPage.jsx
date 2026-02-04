@@ -1,8 +1,9 @@
-// Frontend/src/pages/auth/RegisterPage.jsx - UPDATED WITH CONFIRM PASSWORD & AVATAR
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { GoogleLogin } from '@react-oauth/google'
 import { useAuthStore } from '../../stores/authStore'
 import { authService } from '../../services/authService'
+import { googleAuthService } from '../../services/googleAuthService'
 import { UserCircleIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
 
 export default function RegisterPage() {
@@ -25,7 +26,6 @@ export default function RegisterPage() {
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
-    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }))
     }
@@ -34,13 +34,11 @@ export default function RegisterPage() {
   const handleAvatarChange = (e) => {
     const file = e.target.files[0]
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         setErrors(prev => ({ ...prev, avatar: 'Please select an image file' }))
         return
       }
       
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setErrors(prev => ({ ...prev, avatar: 'Image must be less than 5MB' }))
         return
@@ -49,7 +47,6 @@ export default function RegisterPage() {
       setAvatarFile(file)
       setErrors(prev => ({ ...prev, avatar: '' }))
       
-      // Create preview
       const reader = new FileReader()
       reader.onloadend = () => {
         setAvatarPreview(reader.result)
@@ -113,6 +110,33 @@ export default function RegisterPage() {
     }
   }
 
+  // Google OAuth signup - Success handler
+  const handleGoogleSuccess = async (credentialResponse) => {
+    console.log('🎉 Google OAuth success')
+    setLoading(true)
+    setErrors({})
+
+    try {
+      const data = await googleAuthService.loginWithGoogle(credentialResponse.credential)
+      
+      setAuth(data.user, data.accessToken, data.refreshToken)
+      navigate('/dashboard')
+    } catch (err) {
+      console.error('❌ Google signup error:', err)
+      setErrors({ 
+        submit: err.response?.data?.message || 'Google signup failed. Please try again.' 
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Google OAuth signup - Error handler
+  const handleGoogleError = () => {
+    console.error('❌ Google OAuth error')
+    setErrors({ submit: 'Google signup failed. Please try again.' })
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-gray-100 px-4 py-8">
       <div className="max-w-md w-full">
@@ -125,13 +149,37 @@ export default function RegisterPage() {
         </div>
 
         <div className="card p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {errors.submit && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {errors.submit}
-              </div>
-            )}
+          {errors.submit && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+              {errors.submit}
+            </div>
+          )}
 
+          {/* Google Sign-Up Button */}
+          <div className="mb-6 flex justify-center">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              useOneTap={false}
+              theme="outline"
+              size="large"
+              text="signup_with"
+              shape="rectangular"
+              width="384"
+            />
+          </div>
+
+          {/* Divider */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or sign up with email</span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Avatar Upload */}
             <div className="flex flex-col items-center space-y-3">
               <div className="relative">

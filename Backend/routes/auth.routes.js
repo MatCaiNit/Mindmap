@@ -1,4 +1,3 @@
-// Backend/routes/auth.routes.js - UPDATED WITH PROFILE ENDPOINTS
 import express from 'express';
 import multer from 'multer';
 import { 
@@ -9,6 +8,7 @@ import {
   updateProfile,
   updatePassword
 } from '../controllers/auth.controller.js';
+import { googleLogin } from '../controllers/google-oauth.controller.js';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -32,6 +32,7 @@ const upload = multer({
 router.post('/register', upload.single('avatar'), register);
 router.post('/login', login);
 router.post('/refresh', refresh);
+router.post('/google', googleLogin);
 
 // Protected routes
 router.get('/profile', authMiddleware, getProfile);
