@@ -1,4 +1,4 @@
-// Frontend/src/pages/editor/EditorPage.jsx - WITH AI SUPPORT
+// Frontend/src/pages/editor/EditorPage.jsx - FIXED AUTO LAYOUT
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -9,6 +9,7 @@ import { createYjsProvider } from '../../lib/yjs'
 import { createUndoManager, useUndoShortcuts } from '../../lib/undoManager'
 import MindMeisterCanvas from '../../components/mindmap/MindMeisterCanvas'
 import EditorToolbar from '../../components/mindmap/EditorToolbar'
+import { calculateBalancedLayout } from '../../lib/treeLayout'
 
 export default function EditorPage() {
   const { id } = useParams()
@@ -19,6 +20,7 @@ export default function EditorPage() {
   const [providerReady, setProviderReady] = useState(false)
   const [undoManager, setUndoManager] = useState(null)
   const [synced, setSynced] = useState(false)
+  const [layoutApplied, setLayoutApplied] = useState(false)
   
   const providerRef = useRef(null)
   const setupInProgress = useRef(false)
@@ -49,8 +51,36 @@ export default function EditorPage() {
 
         provider.wsProvider.on('sync', (isSynced) => {
           setSynced(isSynced)
+          
           if (isSynced) {
-            console.log('✅ Synced with', provider.ydoc.getMap('nodes').size, 'nodes')
+            const yNodes = provider.ydoc.getMap('nodes')
+            console.log('✅ Synced with', yNodes.size, 'nodes')
+            
+            // 🔥 AUTO LAYOUT: Apply layout after sync if nodes exist and not yet applied
+            if (!layoutApplied && yNodes.size > 1) {
+              console.log('🎨 Applying auto-layout after sync...')
+              
+              setTimeout(() => {
+                try {
+                  const positions = calculateBalancedLayout(yNodes)
+                  
+                  let updatedCount = 0
+                  positions.forEach((pos, nodeId) => {
+                    const node = yNodes.get(nodeId)
+                    if (node && node.autoAlign !== false && !node.isFree) {
+                      yNodes.set(nodeId, { ...node, position: pos })
+                      updatedCount++
+                    }
+                  })
+                  
+                  console.log(`✅ Layout applied to ${updatedCount} nodes`)
+                  setLayoutApplied(true)
+                  
+                } catch (err) {
+                  console.error('❌ Auto-layout error:', err)
+                }
+              }, 500) // Wait 500ms for full sync
+            }
           }
         })
 
@@ -75,8 +105,9 @@ export default function EditorPage() {
       }
       setupInProgress.current = false
       setProviderReady(false)
+      setLayoutApplied(false)
     }
-  }, [mindmap?.ydocId, accessToken])
+  }, [mindmap?.ydocId, accessToken, layoutApplied])
 
   useEffect(() => {
     if (!undoManager || isViewer) return

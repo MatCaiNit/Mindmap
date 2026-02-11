@@ -1,4 +1,4 @@
-// Frontend/src/components/mindmap/MindMeisterNode.jsx - AUTO FOCUS FIXED
+// Frontend/src/components/mindmap/MindMeisterNode.jsx - WITH THEME SUPPORT
 
 import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { Handle, Position } from 'reactflow'
@@ -10,7 +10,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const [showAnchors, setShowAnchors] = useState(false)
   const inputRef = useRef(null)
   const isComposingRef = useRef(false)
-  const editingSetByDataRef = useRef(false) // Track if editing was set by data.editing
+  const editingSetByDataRef = useRef(false)
   
   const isReadOnly = data.isReadOnly || false
   const level = data.level || 0
@@ -19,78 +19,36 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const autoAlign = data.autoAlign !== false
   const isCreatingConnection = data.isCreatingConnection || false
   
-  // Formatting
+  // Theme & Formatting (from data or defaults)
   const color = data.color || '#3b82f6'
-  const textColor = data.textColor || '#ffffff'
+  const textColor = data.textColor || (level === 0 ? '#1f2937' : '#ffffff')
   const fontSize = data.fontSize || (level === 0 ? '20px' : level === 1 ? '16px' : '14px')
+  const fontWeight = data.fontWeight || (level === 0 ? 'bold' : level === 1 ? '600' : '500')
+  const borderRadius = data.borderRadius || (level === 0 ? '12px' : level === 1 ? '20px' : '16px')
+  const fontFamily = data.fontFamily || 'inherit'
+  const transform = data.transform || 'none'
+  
   const bold = data.bold || (level === 0)
   const italic = data.italic || false
   const underline = data.underline || false
-  
-  const getNodeStyle = () => {
-    const baseStyle = {
-      backgroundColor: color,
-      color: textColor,
-      fontSize,
-      fontWeight: bold ? 'bold' : 'normal',
-      fontStyle: italic ? 'italic' : 'normal',
-      textDecoration: underline ? 'underline' : 'none',
-      transition: 'all 0.2s ease',
-      cursor: 'pointer',
-    }
-    
-    if (level === 0) {
-      return {
-        ...baseStyle,
-        minWidth: '180px',
-        padding: '16px 24px',
-        borderRadius: '12px',
-        border: `3px solid ${color}`,
-        backgroundColor: '#ffffff',
-        color: '#1f2937',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-      }
-    } else if (level === 1) {
-      return {
-        ...baseStyle,
-        minWidth: '140px',
-        padding: '12px 20px',
-        borderRadius: '20px',
-        border: 'none',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-      }
-    } else {
-      return {
-        ...baseStyle,
-        minWidth: '100px',
-        padding: '8px 16px',
-        borderRadius: '16px',
-        border: 'none',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.08)'
-      }
-    }
-  }
 
   // Sync label from data
   useEffect(() => {
     setLocalLabel(data.label)
   }, [data.label])
 
-  // 🔥 FIX: Auto-focus when node is created - with delay
+  // Auto-focus when node is created
   useEffect(() => {
     if (data.editing && !isReadOnly && !editingSetByDataRef.current) {
       editingSetByDataRef.current = true
       
-      // Delay to ensure node is fully rendered
       setTimeout(() => {
         setIsEditing(true)
         
-        // Notify parent immediately
         if (data.onEditingChange) {
           data.onEditingChange(true)
         }
         
-        // Clear editing flag after a short delay
         setTimeout(() => {
           const node = data.yNodes.get(id)
           if (node && node.editing) {
@@ -104,7 +62,6 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   // Focus input when entering edit mode
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      // Use double RAF to ensure DOM is ready
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (inputRef.current) {
@@ -116,7 +73,6 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
     }
   }, [isEditing])
 
-  // Double-click to edit
   const handleDoubleClick = () => {
     if (isReadOnly) return
     setIsEditing(true)
@@ -126,9 +82,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
     }
   }
 
-  // Blur - save changes
   const handleBlur = useCallback(() => {
-    // 🔥 FIX: Don't blur during composition
     if (isComposingRef.current) return
     
     setIsEditing(false)
@@ -151,20 +105,16 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
     }
   }, [id, localLabel, data])
 
-  // 🔥 FIX: Handle Vietnamese IME composition
   const handleCompositionStart = () => {
     isComposingRef.current = true
   }
 
   const handleCompositionEnd = (e) => {
     isComposingRef.current = false
-    // Update value after composition ends
     setLocalLabel(e.target.value)
   }
 
-  // Keyboard in edit mode
   const handleKeyDown = (e) => {
-    // 🔥 FIX: Don't handle shortcuts during IME composition
     if (isComposingRef.current) {
       return
     }
@@ -181,13 +131,11 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
         data.onEditingChange(false)
       }
     }
-    // Prevent Tab from leaving input
     if (e.key === 'Tab') {
       e.stopPropagation()
     }
   }
 
-  // Show anchors in connection mode
   const handleMouseEnter = () => {
     if (isCreatingConnection) {
       setShowAnchors(true)
@@ -198,11 +146,53 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
     setShowAnchors(false)
   }
 
-  // Click anchor
   const handleAnchorClick = (anchorId) => (e) => {
     e.stopPropagation()
     if (data.onAnchorClick) {
       data.onAnchorClick(id, anchorId, e)
+    }
+  }
+
+  // 🔥 GET NODE STYLE - WITH THEME SUPPORT
+  const getNodeStyle = () => {
+    // Base style with theme properties from node data
+    const baseStyle = {
+      backgroundColor: data.background || color,
+      background: data.background || color, // Support gradients
+      color: textColor,
+      fontSize,
+      fontWeight: bold ? 'bold' : fontWeight,
+      fontStyle: italic ? 'italic' : 'normal',
+      textDecoration: underline ? 'underline' : 'none',
+      fontFamily,
+      borderRadius,
+      transform,
+      transition: 'all 0.2s ease',
+      cursor: 'pointer',
+      
+      // 🎨 Apply theme-specific properties from node data
+      border: data.border || 'none',
+      boxShadow: data.boxShadow || (level === 0 ? '0 4px 12px rgba(0,0,0,0.1)' : '0 2px 8px rgba(0,0,0,0.08)'),
+      padding: data.padding || (level === 0 ? '16px 24px' : level === 1 ? '12px 20px' : '8px 16px'),
+      letterSpacing: data.letterSpacing || 'normal',
+      filter: data.filter || 'none',
+    }
+    
+    if (level === 0) {
+      return {
+        ...baseStyle,
+        minWidth: '180px',
+      }
+    } else if (level === 1) {
+      return {
+        ...baseStyle,
+        minWidth: '140px',
+      }
+    } else {
+      return {
+        ...baseStyle,
+        minWidth: '100px',
+      }
     }
   }
 
@@ -279,7 +269,8 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               fontSize: nodeStyle.fontSize,
               fontWeight: nodeStyle.fontWeight,
               fontStyle: nodeStyle.fontStyle,
-              textDecoration: nodeStyle.textDecoration
+              textDecoration: nodeStyle.textDecoration,
+              fontFamily: nodeStyle.fontFamily
             }}
           />
         ) : (
@@ -289,7 +280,8 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
               fontSize: nodeStyle.fontSize,
               fontWeight: nodeStyle.fontWeight,
               fontStyle: nodeStyle.fontStyle,
-              textDecoration: nodeStyle.textDecoration
+              textDecoration: nodeStyle.textDecoration,
+              fontFamily: nodeStyle.fontFamily
             }}
           >
             {localLabel || 'Empty'}
@@ -335,6 +327,16 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
           title="Unlocked (draggable)"
         >
           🔓
+        </div>
+      )}
+
+      {/* Theme indicator (only show in dev mode) */}
+      {data.themeMetadata && process.env.NODE_ENV === 'development' && (
+        <div 
+          className="absolute -bottom-2 -left-2 text-[8px] bg-black text-white px-1 rounded opacity-50"
+          title={`Theme: ${data.themeMetadata.themeName}`}
+        >
+          {data.theme || 'default'}
         </div>
       )}
     </div>

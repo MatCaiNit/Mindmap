@@ -1,4 +1,4 @@
-// Frontend/src/services/mindmapService.js - FIXED
+// Frontend/src/services/mindmapService.js
 import { api } from '../lib/api'
 
 export const mindmapService = {
@@ -9,16 +9,36 @@ export const mindmapService = {
 
   async get(id) {
     const response = await api.get(`/mindmaps/${id}`)
-    // 🔥 FIX: Return BOTH mindmap AND access field
     return {
       ...response.data.mindmap,
-      access: response.data.access  // ← This was missing!
+      access: response.data.access
     }
   },
 
-  async create(title, description = '') {
-    const response = await api.post('/mindmaps', { title, description })
-    return response.data.mindmap
+  async create(title, description = '', template = null) {
+    console.log('📤 Creating mindmap:', { title, hasTemplate: !!template });
+    
+    const payload = { 
+      title, 
+      description
+    };
+    
+    // Only include template if it exists and has structure
+    if (template && template.structure) {
+      payload.template = {
+        id: template.id,
+        name: template.name,
+        theme: template.theme,
+        structure: template.structure,
+        color: template.color
+      };
+      console.log('   Including template:', template.name);
+    }
+    
+    const response = await api.post('/mindmaps', payload);
+    console.log('✅ Mindmap created:', response.data.mindmap._id);
+    
+    return response.data.mindmap;
   },
 
   async update(id, title, description) {

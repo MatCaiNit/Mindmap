@@ -5,19 +5,100 @@ import AuditLog from '../models/AuditLog.js';
 import { nanoid } from 'nanoid';
 import { checkMindmapAccess } from '../services/access.service.js';
 import { createSnapshotSchema, validateSnapshotSchema } from '../utils/snapshotSchema.js';
-import jwt from 'jsonwebtoken'
+import { applyTemplateToYDoc } from '../utils/templateToYjs.js';
+import jwt from 'jsonwebtoken';
 import axios from 'axios';
 
 export async function createMindmap(req, res) {
   try {
-    const { title, description } = req.body;
+    const { title, description, template } = req.body;
+    
+    console.log('\n========================================');
+    console.log('📋 CREATE MINDMAP REQUEST');
+    console.log('========================================');
+    console.log('Title:', title);
+    console.log('Has template:', !!template);
+    if (template) {
+      console.log('Template ID:', template.id);
+      console.log('Template name:', template.name);
+      console.log('Has structure:', !!template.structure);
+    }
+    
     if (!title) return res.status(400).json({ message: 'Missing title' });
+    
     const ownerId = req.user.id;
     const ydocId = nanoid(12);
-    const mm = await Mindmap.create({ title, description: description || '', ownerId, ydocId, collaborators: [] });
-    await AuditLog.create({ mindmapId: mm._id, userId: ownerId, action: 'create-mindmap', detail: { title: mm.title } });
+    
+    // Create mindmap document
+    const mm = await Mindmap.create({ 
+      title, 
+      description: description || '', 
+      ownerId, 
+      ydocId, 
+      collaborators: [] 
+    });
+    
+    console.log('✅ Mindmap created:', mm._id);
+    
+    // Apply template if provided
+    if (template && template.structure) {
+      console.log('🎨 Applying template...');
+      
+      try {
+        const templateSnapshot = applyTemplateToYDoc(template);
+        
+        if (templateSnapshot) {
+          // Save snapshot to Mindmap
+          mm.snapshot = templateSnapshot;
+          await mm.save();
+          
+          console.log('✅ Snapshot saved to Mindmap');
+          
+          // Save as initial version
+          await Version.create({
+            mindmapId: mm._id,
+            snapshot: {
+              schemaVersion: 1,
+              encodedState: templateSnapshot.toString('base64'),
+              meta: {
+                createdBy: ownerId,
+                reason: 'template',
+                templateId: template.id,
+                templateName: template.name
+              },
+              createdAt: new Date().toISOString()
+            },
+            userId: ownerId,
+            type: 'manual',
+            label: `Template: ${template.name}`,
+            size: templateSnapshot.length
+          });
+          
+          console.log('✅ Initial version created');
+        }
+      } catch (templateErr) {
+        console.error('❌ Template application failed:', templateErr);
+        // Continue even if template fails - user gets blank mindmap
+      }
+    }
+    
+    await AuditLog.create({ 
+      mindmapId: mm._id, 
+      userId: ownerId, 
+      action: 'create-mindmap', 
+      detail: { 
+        title: mm.title,
+        template: template ? template.name : 'blank'
+      } 
+    });
+    
+    console.log('========================================\n');
+    
     res.status(201).json({ ok: true, mindmap: mm });
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) { 
+    console.error('❌ Create mindmap error:', err);
+    res.status(500).json({ message: err.message }); 
+  }
 }
 
 export async function listMyMindmaps(req, res) {
@@ -76,9 +157,12 @@ export async function deleteMindmap(req, res) {
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
 
+// ... rest of the controller methods remain the same ...
+// (saveUserSnapshot, saveRealtimeSnapshot, getRealtimeSnapshot, restoreSnapshot, verifyMindmapAccess)
+
 // POST /api/mindmaps/:id/snapshot
 export const saveUserSnapshot = async (req, res) => {
-  const { id } = req.params; // mindmapId
+  const { id } = req.params;
   const { encodedState } = req.body;
 
   const mindmap = await Mindmap.findById(id);
@@ -102,9 +186,6 @@ export const saveUserSnapshot = async (req, res) => {
   res.json({ ok: true });
 };
 
-
-// POST /api/internal/mindmaps/:ydocId/snapshot
-// Called by Realtime Server to save auto-snapshots
 export const saveRealtimeSnapshot = async (req, res) => {
   const ydocId = req.params.ydocId || req.params.id;
   const { snapshot } = req.body;
@@ -116,7 +197,6 @@ export const saveRealtimeSnapshot = async (req, res) => {
     validateSnapshotSchema(snapshot);
     const size = Buffer.byteLength(snapshot.encodedState, 'base64');
 
-    // 1. Save to Version collection
     await Version.create({
       mindmapId: mindmap._id,
       snapshot,
@@ -124,7 +204,6 @@ export const saveRealtimeSnapshot = async (req, res) => {
       size
     });
 
-    // 🔥 CRITICAL FIX: Also update Mindmap.snapshot
     mindmap.snapshot = Buffer.from(snapshot.encodedState, 'base64');
     await mindmap.save();
 
@@ -137,9 +216,6 @@ export const saveRealtimeSnapshot = async (req, res) => {
   }
 };
 
-
-// GET /api/internal/mindmaps/:ydocId/snapshot
-// Called by Realtime Server on doc load
 export const getRealtimeSnapshot = async (req, res) => {
   const ydocId = req.params.ydocId || req.params.id;
 
@@ -147,7 +223,6 @@ export const getRealtimeSnapshot = async (req, res) => {
     const mindmap = await Mindmap.findOne({ ydocId });
     if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
 
-    // 🔥 CRITICAL FIX: Prioritize Mindmap.snapshot first
     if (mindmap.snapshot) {
       console.log(`📦 Returning snapshot from Mindmap.snapshot (${mindmap.snapshot.length} bytes)`);
       
@@ -165,7 +240,6 @@ export const getRealtimeSnapshot = async (req, res) => {
       return res.json({ snapshot });
     }
 
-    // Fallback: Load from latest Version
     const version = await Version.findOne({ mindmapId: mindmap._id })
       .sort({ createdAt: -1 });
 
@@ -183,9 +257,7 @@ export const getRealtimeSnapshot = async (req, res) => {
   }
 };
 
-// POST /api/mindmaps/:id/versions/:versionId/restore
 export const restoreSnapshot = async (req, res) => {
-  console.log("mm controller")
   const { id, versionId } = req.params;
 
   const mindmap = await Mindmap.findById(id);
@@ -206,18 +278,15 @@ export const restoreSnapshot = async (req, res) => {
   res.json({ ok: true });
 };
 
-
-// NEW: Verify user access to mindmap (cho Realtime Server)
 export async function verifyMindmapAccess(req, res) {
   try {
-    const ydocId = req.params.id;  // This is ydocId, not mindmap _id
+    const ydocId = req.params.id;
     const authHeader = req.headers.authorization;
     
     console.log('🔐 verifyMindmapAccess called');
     console.log('   ydocId:', ydocId);
     console.log('   Authorization:', authHeader ? 'Present' : 'Missing');
     
-    // Extract user ID from JWT token
     let userId = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
@@ -236,7 +305,6 @@ export async function verifyMindmapAccess(req, res) {
       return res.json({ hasAccess: false });
     }
     
-    // CRITICAL FIX: Find by ydocId, not _id
     const mindmap = await Mindmap.findOne({ ydocId }).lean();
     
     if (!mindmap) {
@@ -263,7 +331,6 @@ export async function verifyMindmapAccess(req, res) {
   }
 }
 
-// GET /api/mindmaps/:id/versions/:versionId
 export const getVersion = async (req, res) => {
   const { versionId } = req.params;
 
@@ -281,4 +348,3 @@ export const getVersion = async (req, res) => {
     user: version.userId
   });
 };
-

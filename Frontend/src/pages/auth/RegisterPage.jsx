@@ -155,29 +155,6 @@ export default function RegisterPage() {
             </div>
           )}
 
-          {/* Google Sign-Up Button */}
-          <div className="mb-6 flex justify-center">
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={handleGoogleError}
-              useOneTap={false}
-              theme="outline"
-              size="large"
-              text="signup_with"
-              shape="rectangular"
-              width="384"
-            />
-          </div>
-
-          {/* Divider */}
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or sign up with email</span>
-            </div>
-          </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Avatar Upload */}
@@ -330,6 +307,30 @@ export default function RegisterPage() {
               )}
             </button>
           </form>
+
+          {/* Divider */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or sign up with email</span>
+            </div>
+          </div>
+
+          {/* Google Sign-Up Button */}
+          <div className="mb-6 flex justify-center">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              useOneTap={false}
+              theme="outline"
+              size="large"
+              text="signup_with"
+              shape="rectangular"
+              width="384"
+            />
+          </div>
 
           <div className="mt-6 text-center text-sm text-gray-600">
             Already have an account?{' '}

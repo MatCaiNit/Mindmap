@@ -1,4 +1,3 @@
-// Frontend/src/pages/dashboard/DashboardPage.jsx - UPDATED WITH TABS
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -8,13 +7,16 @@ import {
   PlusIcon, 
   FolderIcon, 
   UserGroupIcon,
-  ShieldCheckIcon 
+  ShieldCheckIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline'
 import CreateMindmapModal from '../../components/mindmap/CreateMindmapModal'
+import TemplateSelectionModal from '../../components/mindmap/TemplateSelectionModal'
 import MindmapCard from '../../components/mindmap/MindmapCard'
 
 export default function DashboardPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [activeTab, setActiveTab] = useState('my') // 'my' or 'shared'
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -35,8 +37,8 @@ export default function DashboardPage() {
   )
 
   const createMutation = useMutation({
-    mutationFn: ({ title, description }) => 
-      mindmapService.create(title, description),
+    mutationFn: ({ title, description, template }) => 
+      mindmapService.create(title, description, template),
     onSuccess: (mindmap) => {
       queryClient.invalidateQueries(['mindmaps'])
       navigate(`/mindmap/${mindmap._id}`)
@@ -50,6 +52,16 @@ export default function DashboardPage() {
     },
   })
 
+  const handleCreateFromTemplate = (template) => {
+    const title = template.structure?.text || template.name
+    createMutation.mutate({ 
+      title, 
+      description: template.description,
+      template 
+    })
+    setShowTemplateModal(false)
+  }
+
   const displayedMindmaps = activeTab === 'my' ? ownedMindmaps : sharedMindmaps
 
   return (
@@ -62,13 +74,25 @@ export default function DashboardPage() {
             {ownedMindmaps.length} owned • {sharedMindmaps.length} shared with you
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="btn-primary flex items-center space-x-2"
-        >
-          <PlusIcon className="w-5 h-5" />
-          <span>New Mindmap</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          {/* Quick Template Button */}
+          <button
+            onClick={() => setShowTemplateModal(true)}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <SparklesIcon className="w-5 h-5" />
+            <span>Use Template</span>
+          </button>
+          
+          {/* Create Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn-primary flex items-center space-x-2"
+          >
+            <PlusIcon className="w-5 h-5" />
+            <span>New Mindmap</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -133,14 +157,23 @@ export default function DashboardPage() {
                 No mindmaps yet
               </h3>
               <p className="text-gray-600 mb-6">
-                Get started by creating your first mindmap
+                Get started by creating your first mindmap or using a template
               </p>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="btn-primary"
-              >
-                Create Mindmap
-              </button>
+              <div className="flex items-center justify-center space-x-3">
+                <button
+                  onClick={() => setShowTemplateModal(true)}
+                  className="btn-secondary flex items-center space-x-2"
+                >
+                  <SparklesIcon className="w-5 h-5" />
+                  <span>Browse Templates</span>
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="btn-primary"
+                >
+                  Create Blank Mindmap
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -181,7 +214,7 @@ export default function DashboardPage() {
                 />
                 {!isOwner && mindmap.ownerId && (
                   <div className="mt-2 text-xs text-gray-500 flex items-center space-x-1">
-                    <span></span>
+                    <span>👤</span>
                     <span className="font-medium">
                       {mindmap.ownerId.name || mindmap.ownerId.email}
                     </span>
@@ -197,10 +230,18 @@ export default function DashboardPage() {
       {showCreateModal && (
         <CreateMindmapModal
           onClose={() => setShowCreateModal(false)}
-          onCreate={(title, description) => {
-            createMutation.mutate({ title, description })
+          onCreate={(title, description, template) => {
+            createMutation.mutate({ title, description, template })
             setShowCreateModal(false)
           }}
+        />
+      )}
+
+      {/* Template Selection Modal */}
+      {showTemplateModal && (
+        <TemplateSelectionModal
+          onClose={() => setShowTemplateModal(false)}
+          onSelectTemplate={handleCreateFromTemplate}
         />
       )}
     </div>
