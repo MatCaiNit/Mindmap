@@ -1,175 +1,159 @@
-// Frontend/src/components/mindmap/TemplateSelectionModal.jsx - WITH THEME PREVIEW
-
+// Frontend/src/components/mindmap/TemplateSelectionModal.jsx
 import { useState } from 'react'
 import { XMarkIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
-import { 
-  MINDMAP_TEMPLATES, 
-  TEMPLATE_CATEGORIES, 
+import {
+  MINDMAP_TEMPLATES,
+  TEMPLATE_CATEGORIES,
   getTemplatesByCategory,
-  getThemeDisplayName
+  getThemeDisplayName,
 } from '../../data/mindmapTemplates'
+
+// Colours used as subtle tint for the theme badge
+const THEME_BADGE = {
+  modern:  'bg-blue-50   text-blue-700  border-blue-200',
+  sketch:  'bg-amber-50  text-amber-700 border-amber-200',
+  neon:    'bg-green-50  text-green-700 border-green-200',
+  vintage: 'bg-orange-50 text-orange-700 border-orange-200',
+}
+
+// Small colour swatches shown inside each card so the user knows what the
+// theme looks like before clicking.
+const THEME_PREVIEW_COLORS = {
+  modern:  ['#1e40af', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'],
+  sketch:  ['#fbbf24', '#86efac', '#93c5fd', '#f9a8d4', '#a5f3fc'],
+  neon:    ['#0f172a', '#00f5ff', '#39ff14', '#ff10f0', '#ffd700'],
+  vintage: ['#d4a853', '#c17f3a', '#a05c1a', '#7c3f0a', '#cd9b1d'],
+}
 
 export default function TemplateSelectionModal({ onClose, onSelectTemplate }) {
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery]           = useState('')
 
   const templates = getTemplatesByCategory(selectedCategory)
-  const filteredTemplates = templates.filter(template =>
-    template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    template.description.toLowerCase().includes(searchQuery.toLowerCase())
+  const filtered  = templates.filter(t =>
+    t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.description.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const handleSelectTemplate = (template) => {
+  const handleSelect = (template) => {
     onSelectTemplate(template)
     onClose()
   }
 
-  // Get theme badge color
-  const getThemeBadgeStyle = (theme) => {
-    const styles = {
-      modern: 'bg-blue-100 text-blue-700 border-blue-300',
-      sketch: 'bg-amber-100 text-amber-700 border-amber-300',
-      cartoon: 'bg-pink-100 text-pink-700 border-pink-300',
-      circuit: 'bg-green-100 text-green-700 border-green-300',
-      blueprint: 'bg-cyan-100 text-cyan-700 border-cyan-300',
-      fluid: 'bg-purple-100 text-purple-700 border-purple-300',
-      vintage: 'bg-orange-100 text-orange-700 border-orange-300'
-    }
-    return styles[theme] || 'bg-gray-100 text-gray-700 border-gray-300'
-  }
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="p-6 border-b border-gray-100">
+          <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Choose a Template</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                Each template has a unique theme and visual style
+              <p className="text-sm text-gray-500 mt-1">
+                4 templates, each with a unique visual theme
               </p>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition mt-1">
               <XMarkIcon className="w-6 h-6" />
             </button>
           </div>
 
-          {/* Search Bar */}
+          {/* Search */}
           <div className="relative">
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search templates..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Search templates…"
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
             />
           </div>
         </div>
 
-        {/* Category Tabs */}
-        <div className="border-b border-gray-200 px-6 overflow-x-auto">
+        {/* ── Category tabs ───────────────────────────────────────────────── */}
+        <div className="border-b border-gray-100 px-6 overflow-x-auto">
           <nav className="flex space-x-6 -mb-px">
-            {TEMPLATE_CATEGORIES.map(category => (
+            {TEMPLATE_CATEGORIES.map(cat => (
               <button
-                key={category.id}
-                onClick={() => setSelectedCategory(category.id)}
-                className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition flex items-center space-x-2 ${
-                  selectedCategory === category.id
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`py-3 px-1 border-b-2 text-sm font-medium whitespace-nowrap transition flex items-center space-x-1.5 ${
+                  selectedCategory === cat.id
                     ? 'border-primary-600 text-primary-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <span>{category.icon}</span>
-                <span>{category.name}</span>
+                <span>{cat.icon}</span>
+                <span>{cat.name}</span>
               </button>
             ))}
           </nav>
         </div>
 
-        {/* Templates Grid */}
+        {/* ── Template grid ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6">
-          {filteredTemplates.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">🔍</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No templates found
-              </h3>
-              <p className="text-gray-600">
-                Try adjusting your search or browse different categories
-              </p>
+          {filtered.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <p className="text-5xl mb-3">🔍</p>
+              <p className="font-medium">No templates match that search</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredTemplates.map(template => (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map(template => (
                 <button
                   key={template.id}
-                  onClick={() => handleSelectTemplate(template)}
-                  className="text-left p-6 border-2 border-gray-200 rounded-xl hover:border-primary-400 hover:shadow-lg transition group"
+                  onClick={() => handleSelect(template)}
+                  className="text-left p-5 border-2 border-gray-100 rounded-xl hover:border-primary-400 hover:shadow-lg transition-all group"
                 >
-                  <div className="flex items-start space-x-3 mb-3">
-                    <div 
-                      className="flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center text-2xl"
-                      style={{ 
-                        backgroundColor: template.color 
-                          ? `${template.color}15` 
-                          : '#f3f4f6' 
-                      }}
-                    >
-                      {template.icon}
+                  {/* Top row: icon + title + theme badge */}
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      <span className="text-3xl">{template.icon}</span>
+                      <div>
+                        <p className="font-semibold text-gray-900 group-hover:text-primary-600 transition">
+                          {template.name}
+                        </p>
+                        <p className="text-xs text-gray-400">{template.category}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition truncate">
-                        {template.name}
-                      </h3>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {template.category}
-                      </p>
-                    </div>
+
+                    {template.theme && (
+                      <span className={`ml-2 flex-shrink-0 text-xs font-medium px-2 py-1 rounded-full border ${THEME_BADGE[template.theme] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {getThemeDisplayName(template.theme)}
+                      </span>
+                    )}
                   </div>
-                  
-                  <p className="text-sm text-gray-600 line-clamp-2 mb-3">
+
+                  {/* Description */}
+                  <p className="text-sm text-gray-500 line-clamp-2 mb-3">
                     {template.description}
                   </p>
 
-                  {/* Template Info */}
-                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                    {/* Theme Badge */}
-                    {template.theme && (
-                      <div className="flex items-center space-x-2">
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${getThemeBadgeStyle(template.theme)}`}>
-                          {getThemeDisplayName(template.theme)}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {/* Branches Count */}
-                    {template.structure && (
-                      <div className="flex items-center space-x-4 text-xs text-gray-500">
-                        <span className="flex items-center space-x-1">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                          </svg>
-                          <span>{template.structure.children?.length || 0} main branches</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  {/* Colour swatches preview */}
+                  {template.theme && THEME_PREVIEW_COLORS[template.theme] && (
+                    <div className="flex items-center space-x-1.5">
+                      {THEME_PREVIEW_COLORS[template.theme].map((col, i) => (
+                        <span
+                          key={i}
+                          className="w-5 h-5 rounded-full border border-white shadow-sm"
+                          style={{ backgroundColor: col }}
+                        />
+                      ))}
+                      <span className="text-xs text-gray-400 ml-1">
+                        {template.structure?.children?.length ?? 0} branches
+                      </span>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-gray-200 bg-gray-50">
-          <p className="text-xs text-gray-600 text-center">
-            💡 Tip: Each template has a distinct visual style - from hand-drawn sketches to circuit boards!
-          </p>
+        {/* ── Footer ─────────────────────────────────────────────────────── */}
+        <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl text-center text-xs text-gray-400">
+          Each template locks in a visual theme — Modern · Sketch · Neon · Vintage
         </div>
       </div>
     </div>
