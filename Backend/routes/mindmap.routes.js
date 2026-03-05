@@ -9,7 +9,8 @@ import {
   deleteMindmap, 
   saveUserSnapshot, 
   restoreSnapshot, 
-  verifyMindmapAccess
+  verifyMindmapAccess,
+  generateFromPdf
 } from '../controllers/mindmap.controller.js';
 import { 
   getVersion,
@@ -17,8 +18,19 @@ import {
   restoreVersion, 
   saveManualVersion 
 } from '../controllers/version.controller.js';
+import multer from 'multer'
 
 const router = express.Router();
+
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (_req, file, cb) => {
+    file.mimetype === 'application/pdf'
+      ? cb(null, true)
+      : cb(new Error('Only PDF files allowed'), false)
+  }
+})
 
 // Tất cả routes cần auth
 router.use(authMiddleware);
@@ -36,10 +48,14 @@ router.post('/:id/snapshot', requireMindmapAccess('write'), saveUserSnapshot);
 router.post('/:id/restore', requireMindmapAccess('write'), restoreSnapshot);
 
 // Basic CRUD
+router.post('/:id/generate-from-pdf', pdfUpload.single('pdf'), generateFromPdf);
+
 router.post('/', createMindmap);                // POST /api/mindmaps
 router.get('/', listMyMindmaps);                // GET  /api/mindmaps
 router.get('/:id', getMindmap);                 // GET  /api/mindmaps/:id
 router.put('/:id', updateMindmap);              // PUT  /api/mindmaps/:id
 router.delete('/:id', deleteMindmap);           // DELETE /api/mindmaps/:id
+
+
 
 export default router;

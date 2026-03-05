@@ -3,8 +3,13 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import aiRoutes from './routes/ai.routes.js';
+import mongoose from 'mongoose';
 
 dotenv.config();
+
+
+await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/mindmap')
+console.log('MongoDB connected')
 
 const app = express();
 app.use(cors());

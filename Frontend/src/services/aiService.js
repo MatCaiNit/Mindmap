@@ -35,5 +35,45 @@ export const aiService = {
     }
     
     return response.data
-  }
+  },
+
+
+  /**
+   * Upload PDF và generate mindmap
+   * @param {string} mindmapId
+   * @param {File}   file        — File object từ input[type=file]
+   * @param {Function} onProgress — callback(percent) optional
+   */
+  async generateFromPdf(mindmapId, file, onProgress){
+    const form = new FormData()
+    form.append('pdf', file)
+
+    const response = await api.post(
+      `/mindmaps/${mindmapId}/generate-from-pdf`,
+      form,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000, // 2 phút
+        onUploadProgress: (e) => {
+          if (onProgress && e.total) {
+            onProgress(Math.round((e.loaded * 100) / e.total))
+          }
+        },
+      }
+    )
+    return response.data
+  },
+
+  /**
+   * Lấy source chunk cho một node (để highlight PDF)
+   * @param {string} mindmapId
+   * @param {string} nodeText   — label của node
+   */
+  async getNodeSourc(mindmapId, nodeText){
+    const response = await api.get(
+      `/mindmaps/${mindmapId}/node-source`,
+      { params: { nodeText } }
+    )
+    return response.data
+  },
 }
