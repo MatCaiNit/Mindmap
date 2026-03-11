@@ -1,0 +1,62 @@
+[
+  {
+    "question": "Hệ thống MindMapper chạy trên những port nào?",
+    "ground_truth": "Frontend chạy trên port 3000, Backend chạy trên port 5000, Realtime Server chạy trên port 1234, AI Service chạy trên port 4000."
+  },
+  {
+    "question": "Những vấn đề gì của các công cụ mindmap hiện tại mà dự án muốn giải quyết?",
+    "ground_truth": "Thiếu tính cộng tác thời gian thực, giao diện phức tạp, thiếu hỗ trợ AI, quản lý phiên bản kém."
+  },
+  {
+    "question": "Dự án sử dụng thuật toán gì để đồng bộ dữ liệu thời gian thực?",
+    "ground_truth": "Dự án sử dụng Yjs – một framework CRDT (Conflict-free Replicated Data Type) để đồng bộ dữ liệu phân tán, đảm bảo eventual consistency."
+  },
+  {
+    "question": "Frontend sử dụng những thư viện chính nào?",
+    "ground_truth": "React 18.2 với Vite 5.0, ReactFlow 12.0 để vẽ mindmap, Zustand 4.4 quản lý state, React Query 5.8 cho data fetching, Tailwind CSS 3.3 cho styling, Yjs và y-websocket cho real-time."
+  },
+  {
+    "question": "AI Service trong dự án sử dụng model AI nào?",
+    "ground_truth": "AI Service sử dụng OpenAI GPT-4o-mini."
+  },
+  {
+    "question": "Hệ thống lưu dữ liệu Yjs như thế nào trong database?",
+    "ground_truth": "Trạng thái Y.Doc được mã hóa thành binary update, lưu vào MongoDB dưới dạng Buffer (snapshot). Khi tải lại, các update được apply lên Y.Doc rỗng để khôi phục trạng thái."
+  },
+  {
+    "question": "Backend và Realtime Server giao tiếp với nhau như thế nào?",
+    "ground_truth": "Backend và Realtime Server giao tiếp qua HTTP với service token xác thực trong header x-service-token. Mục đích là trigger snapshot save và verify user access."
+  },
+  {
+    "question": "Access token và refresh token có thời hạn bao lâu?",
+    "ground_truth": "Access token có thời hạn 15 phút, refresh token có thời hạn 7 ngày."
+  },
+  {
+    "question": "Quy trình Save Version diễn ra như thế nào?",
+    "ground_truth": "Frontend gọi POST /api/mindmaps/:id/versions/save, Backend gọi internal API tới Realtime Server để lấy snapshot, Realtime encode Y.Doc thành base64, Backend tạo Version document lưu vào MongoDB và cập nhật Mindmap.snapshot."
+  },
+  {
+    "question": "MongoDB có bao nhiêu collections chính và đó là những collection nào?",
+    "ground_truth": "Hệ thống có 6 collections chính: User, Mindmap, Version, Notification, RefreshToken, AuditLog."
+  },
+  {
+    "question": "Collaborator trong Mindmap có những role nào?",
+    "ground_truth": "Collaborator có 2 role: editor (được phép chỉnh sửa nội dung và lưu version) và viewer (chỉ xem, không sửa được)."
+  },
+  {
+    "question": "Refresh token được quản lý theo cơ chế nào?",
+    "ground_truth": "Refresh token dùng token rotation: mỗi lần refresh, token cũ bị xóa và tạo token mới. Token chỉ dùng 1 lần (one-time use), hết hạn sau 7 ngày, MongoDB dùng TTL index để tự động xóa token hết hạn."
+  },
+  {
+    "question": "Tính năng version control hỗ trợ những loại version nào?",
+    "ground_truth": "Hệ thống hỗ trợ 4 loại version: manual (lưu thủ công), auto (tự động), restore (tạo khi restore version cũ), delete-backup (tạo trước khi xóa mindmap)."
+  },
+  {
+    "question": "Keyboard shortcuts nào được hỗ trợ trong editor?",
+    "ground_truth": "Tab thêm child node, Enter thêm sibling node, Delete/Backspace xóa node, Ctrl+Z undo, Ctrl+Y redo, Escape thoát connection mode, Double-click chỉnh text node."
+  },
+  {
+    "question": "Các yêu cầu phi chức năng về performance là gì?",
+    "ground_truth": "Real-time sync latency dưới 1 giây, API response time dưới 2 giây, AI generation dưới 10 giây, auto-layout dưới 500ms cho 100 nodes, frontend bundle size dưới 1MB gzipped."
+  }
+]

@@ -1,0 +1,21 @@
+[
+  "MindMapper > Giới thiệu > Đặt vấn đề: Thiếu cộng tác thời gian thực, giao diện phức tạp, thiếu hỗ trợ AI, quản lý phiên bản kém",
+  "MindMapper > Giới thiệu > Mục tiêu dự án: Quản lý người dùng đăng nhập JWT, quản lý profile, CRUD mindmaps, version control, lưu tự động, khôi phục, hệ thống thông báo, AI collaboration",
+  "MindMapper > Giới thiệu > Công nghệ sử dụng: Frontend React ReactFlow Zustand, Backend Node.js Express MongoDB, Realtime WebSocket Yjs, AI Service OpenAI GPT-4o-mini",
+  "MindMapper > Giới thiệu > Phạm vi nghiên cứu: Chức năng đã triển khai gồm đăng ký đăng nhập JWT, CRUD mindmaps, real-time collaboration, version control, AI generate mindmap, AI suggest nodes",
+  "MindMapper > Cơ sở lý thuyết > Sơ đồ tư duy: Root node chủ đề chính, Branches nhánh con, Sub-branches chi tiết, Connections liên kết, Colors phân biệt nhóm",
+  "MindMapper > Cơ sở lý thuyết > Backend RESTful API: GET lấy dữ liệu, POST tạo mới, PUT PATCH cập nhật, DELETE xóa, Stateless JSON HTTP status codes",
+  "MindMapper > Cơ sở lý thuyết > Frontend React ReactFlow: Component-based quản lý state, ReactFlow render node edge drag zoom pan, Luồng dữ liệu qua Yjs đồng bộ",
+  "MindMapper > Cơ sở lý thuyết > Real-time Collaboration WebSocket Yjs: WebSocket full-duplex TCP, Yjs CRDT eventual consistency, Y.Map nodes Y.Array edges, UndoManager captureTimeout 500",
+  "MindMapper > Cơ sở lý thuyết > OpenAI GPT Model: GPT-4o-mini natural language understanding text generation few-shot learning, gọi API sinh JSON mindmap structure và gợi ý nodes",
+  "MindMapper > Cơ sở lý thuyết > Cơ sở dữ liệu: MongoDB NoSQL document BSON schema linh hoạt, Mongoose ODM validation middleware, lưu users mindmaps versions",
+  "MindMapper > Phân tích thiết kế > Yêu cầu chức năng: FR-01 quản lý tài khoản JWT, FR-02 CRUD mindmap, FR-03 vẽ chỉnh sửa, FR-04 real-time collaboration, FR-05 version control, FR-06 collab management, FR-07 notification, FR-08 AI, FR-09 keyboard shortcuts",
+  "MindMapper > Phân tích thiết kế > Yêu cầu phi chức năng: NFR-01 latency dưới 1s API dưới 2s AI dưới 10s, NFR-02 scalability concurrent users, NFR-03 security bcrypt JWT RBAC, NFR-04 usability Material Design, NFR-05 reliability auto-reconnect, NFR-06 maintainability MVC",
+  "MindMapper > Phân tích thiết kế > Kiến trúc hệ thống: Frontend port 3000 React Vite, Backend port 5000 Express Node.js, Realtime port 1234 WebSocket Yjs, AI Service port 4000 OpenAI, Database MongoDB port 27017",
+  "MindMapper > Phân tích thiết kế > Thiết kế Use Case: UC-01 đăng ký, UC-02 đăng nhập, UC-03 quản lý profile, UC-04 tạo mindmap, UC-05 xem danh sách, UC-06 vẽ mindmap, UC-07 real-time collaboration, UC-08 lưu version, UC-09 xem history, UC-10 restore version, UC-11 mời collaborators, UC-12 quản lý team, UC-13 accept reject invite, UC-14 generate AI, UC-15 suggest AI",
+  "MindMapper > Phân tích thiết kế > Thiết kế cơ sở dữ liệu: User email password name avatarUrl provider, Mindmap title ownerId ydocId collaborators snapshot, Version mindmapId snapshot encodedState userId type label size, Notification type toUser fromUser mindmap role status read, RefreshToken userId token expiresAt TTL index, AuditLog mindmapId userId action detail",
+  "MindMapper > Phân tích thiết kế > Thiết kế giao diện: Đăng nhập đăng ký, Dashboard my mindmaps shared, Profile page, Create mindmap popup, Editor page ReactFlow canvas, Save version popup history, AI Assistant popup, Thanh công cụ node bold italic underline fontsize color AI suggest connection",
+  "MindMapper > Triển khai hệ thống > Môi trường phát triển: Windows Linux macOS Node.js 18.x MongoDB 6.0+, React 18.2 Vite 5.0 ReactFlow 12.0 Tailwind 3.3 Zustand 4.4 React Query 5.8 Yjs 13.6, Express 4.18 Mongoose 7.3 JWT bcryptjs Multer, WebSocket ws 8.18 y-websocket 2.0.4, OpenAI client 6.15",
+  "MindMapper > Kết luận và hướng phát triển > Kết luận: Yjs CRDT WebSocket đồng bộ nhiều người dùng, AI GPT-4 sinh sơ đồ gợi ý ý tưởng, version control save restore, notification real-time audit logging, undo redo UndoManager, auto-layout balanced tree",
+  "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển: Mobile app iOS Android, offline mode, templates, Google OAuth, AI tự động tối ưu bố cục gợi ý thông minh đa ngôn ngữ, bình luận chú thích gắn thẻ, tối ưu hiệu năng node lớn"
+]
