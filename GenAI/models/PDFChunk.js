@@ -1,18 +1,16 @@
 import mongoose from 'mongoose'
 
-const PdfChunkSchema = new mongoose.Schema({
+const PDFChunkSchema = new mongoose.Schema({
   mindmapId: { type: String, required: true, index: true },
-  filename:  { type: String, default: '' },
   text:      { type: String, required: true },
-  page:      { type: Number, required: true },
-  chunkIndex:{ type: Number, default: 0 },
-  bbox: {
-    x0: { type: Number, default: 0 },
-    y0: { type: Number, default: 0 },
-    x1: { type: Number, default: 0 },
-    y1: { type: Number, default: 0 },
-  },
-  embedding: { type: [Number], default: [] },
+  embedding: { type: [Number], default: [] },   // 768 chiều
+  chunkIndex: { type: Number, default: 0 },
+  metadata: {
+    filename:     String,
+    pageEstimate: Number,
+  }
 }, { timestamps: true })
 
-export default mongoose.model('PdfChunk', PdfChunkSchema)
+PDFChunkSchema.index({ mindmapId: 1, chunkIndex: 1 })
+
+export default mongoose.model('PDFChunk', PDFChunkSchema)

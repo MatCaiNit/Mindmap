@@ -1,77 +1,86 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
-import { v4 as uuidv4 } from 'uuid';
-import dotenv from 'dotenv';
-dotenv.config();
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import Groq from 'groq-sdk'
+import dotenv from 'dotenv'
+dotenv.config()
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const PROVIDER = process.env.AI_PROVIDER || 'gemini'
 
-const model = genAI.getGenerativeModel({ 
-  model: "gemini-2.5-flash",
-  generationConfig: {
-    responseMimeType: "application/json",
+// Khởi tạo model theo provider
+let geminiModel = null
+let groqClient  = null
+
+if (PROVIDER === 'gemini') {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+  geminiModel = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    generationConfig: { temperature: 0.7, maxOutputTokens: 4096 }
+  })
+} else {
+  groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY })
+}
+
+async function generateText(prompt, systemPrompt = '') {
+  if (PROVIDER === 'groq') {
+    const completion = await groqClient.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 4096,
+    })
+    return completion.choices[0].message.content
   }
-});
 
-// Generate mindmap from text
+  const result = await geminiModel.generateContent(
+    systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt
+  )
+  return result.response.text()
+}
+
+const MINDMAP_SYSTEM_PROMPT = `Bạn là AI chuyên tạo mindmap.
+Trả lời ĐÚNG định dạng JSON, KHÔNG có text khác:
+{
+  "root": "Chủ đề chính",
+  "children": [
+    { "text": "Nhánh 1", "children": [{ "text": "Lá 1.1" }] }
+  ]
+}
+Tạo 4-6 nhánh chính, mỗi nhánh 2-4 lá.`
+
 export async function generateMindmapFromText(text) {
-  const prompt = `You are a mindmap generator. Given a topic, create a hierarchical mindmap structure.
-  Topic: "${text}"
-  
-  REQUIREMENTS:
-  - Return ONLY valid JSON
-  - Structure: { "text": "root topic", "children": [{ "text": "child", "children": [] }] }
-  - Max 3 levels deep, 3-5 main branches.`;
-
-  try {
-    // Gemini không có tách biệt "system" và "user" message trong hàm generateContent đơn giản
-    // Ta có thể gộp vào prompt hoặc dùng systemInstruction khi khởi tạo model
-    const result = await model.generateContent(prompt);
-    const content = result.response.text();
-    
-    console.log(' Gemini Raw Response:', content);
-
-    const mindmap = JSON.parse(content);
-    
-    if (!mindmap.text || !Array.isArray(mindmap.children)) {
-      throw new Error('Invalid mindmap structure from AI');
-    }
-
-    addIdsToMindmap(mindmap);
-    return mindmap;
-
-  } catch (err) {
-    console.error(' Gemini Generation failed:', err.message);
-    throw new Error('AI generation failed: ' + err.message);
-  }
+  const raw = await generateText(`Tạo mindmap từ:\n\n${text}`, MINDMAP_SYSTEM_PROMPT)
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) throw new Error('AI không trả về JSON hợp lệ')
+  return JSON.parse(match[0])
 }
 
-// Suggest nodes based on context
-export async function suggestNodeFromContext(context) {
-  const { currentNode, parentNodes, siblings } = context;
-  
-  const prompt = `Generate 3-5 related child ideas for a mindmap node.
-  Current node: "${currentNode}"
-  Parent context: ${parentNodes?.join(' > ') || 'root'}
-  Existing siblings: ${siblings?.join(', ') || 'none'}
-
-  Return ONLY JSON: { "suggestions": [{"text": "idea1"}] }`;
-
-  try {
-    const result = await model.generateContent(prompt);
-    const content = result.response.text();
-    
-    const data = JSON.parse(content);
-    return data.suggestions || [];
-
-  } catch (err) {
-    console.error(' Gemini Suggestion failed:', err.message);
-    throw new Error('AI suggestion failed: ' + err.message);
-  }
+export async function generateMindmapFromContext(chunks) {
+  const context = chunks
+    .map((c, i) => `[Đoạn ${i+1}]:\n${c.text}`)
+    .join('\n\n')
+  const raw = await generateText(
+    `Tạo mindmap tổng hợp từ nội dung PDF:\n\n${context}`,
+    MINDMAP_SYSTEM_PROMPT
+  )
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) throw new Error('AI không trả về JSON hợp lệ')
+  return JSON.parse(match[0])
 }
 
-function addIdsToMindmap(node) {
-  if (!node.id) node.id = uuidv4();
-  if (node.children) {
-    node.children.forEach(child => addIdsToMindmap(child));
-  }
+export async function suggestNodes(context) {
+  const { currentNode, parentNodes = [], siblings = [] } = context
+  const prompt = `Mindmap context:
+Node hiện tại: "${currentNode}"
+${parentNodes.length ? `Đường dẫn: ${parentNodes.join(' → ')}` : ''}
+${siblings.length ? `Cùng cấp: ${siblings.join(', ')}` : ''}
+
+Đề xuất 4 ý tưởng con cho "${currentNode}".
+JSON: { "suggestions": [{"text": "..."}] }`
+
+  const raw   = await generateText(prompt)
+  const match = raw.match(/\{[\s\S]*\}/)
+  if (!match) throw new Error('Parse error')
+  return JSON.parse(match[0])
 }

@@ -1,68 +1,40 @@
-import { createRequire } from 'module'
-const require = createRequire(import.meta.url)
+import pdfParse from 'pdf-parse'
 
-const pdfParse = require('pdf-parse')
-
-export async function extractChunksFromPdf(buffer, filename = '') {
+export async function extractTextFromPDF(buffer) {
   const data = await pdfParse(buffer)
-
-  const pages = data.text.split('\f')
-  const chunks = []
-
-  pages.forEach((pageText, pageIndex) => {
-    const page = pageIndex + 1
-    const cleaned = pageText.trim()
-    if (!cleaned) return
-
-    const paragraphs = splitIntoParagraphs(cleaned, 500)
-
-    paragraphs.forEach((para, paraIdx) => {
-      if (para.trim().length < 30) return
-
-      chunks.push({
-        filename,
-        text: para.trim(),
-        page,
-        chunkIndex: paraIdx,
-        bbox: { x0: 0, y0: 0, x1: 0, y1: 0 },
-      })
-    })
-  })
-
-  console.log(` Extracted ${chunks.length} chunks from ${pages.length} pages`)
-  return chunks
+  return { text: data.text, pages: data.numpages }
 }
 
-/**
- * Chia text thành đoạn nhỏ theo số ký tự, không cắt giữa câu
- */
-function splitIntoParagraphs(text, maxLength = 500) {
-  // Thử tách theo đoạn văn trước
-  const naturalParagraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+// Chunk thông minh — sliding window có overlap
+export function chunkText(text, options = {}) {
+  const { chunkSize = 400, overlap = 80 } = options
 
-  const result = []
+  const paragraphs = text
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map(p => p.trim())
+    .filter(p => p.length > 20)
 
-  naturalParagraphs.forEach(para => {
-    if (para.length <= maxLength) {
-      result.push(para)
-      return
+  const chunks = []
+  let currentChunk = ''
+  let currentSize  = 0
+
+  for (const para of paragraphs) {
+    const paraWords = para.split(' ').length
+
+    if (currentSize + paraWords > chunkSize && currentChunk) {
+      chunks.push(currentChunk.trim())
+      // Giữ overlap để không mất context ở ranh giới chunk
+      const words       = currentChunk.split(' ')
+      const overlapText = words.slice(-overlap).join(' ')
+      currentChunk = overlapText + ' ' + para
+      currentSize  = overlap + paraWords
+    } else {
+      currentChunk += (currentChunk ? '\n\n' : '') + para
+      currentSize  += paraWords
     }
+  }
 
-    // Đoạn quá dài → tách theo câu
-    const sentences = para.match(/[^.!?]+[.!?]+/g) || [para]
-    let current = ''
-
-    sentences.forEach(sentence => {
-      if ((current + sentence).length > maxLength && current) {
-        result.push(current.trim())
-        current = sentence
-      } else {
-        current += ' ' + sentence
-      }
-    })
-
-    if (current.trim()) result.push(current.trim())
-  })
-
-  return result
+  if (currentChunk.trim()) chunks.push(currentChunk.trim())
+  return chunks
 }
