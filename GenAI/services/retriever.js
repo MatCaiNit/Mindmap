@@ -14,7 +14,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MongoClient } from "mongodb";
 
 const genai       = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMBED_MODEL = "text-embedding-004";
+const EMBED_MODEL = "gemini-embedding-001";
 const GEN_MODEL   = "gemini-3.1-flash";
 const MONGO_DB    = process.env.MONGO_DB   || "mindmap";
 const MONGO_COLL  = process.env.MONGO_COLL || "pdfchunks";

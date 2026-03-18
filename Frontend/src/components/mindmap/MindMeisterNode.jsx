@@ -95,7 +95,10 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
     if (data.yNodes) {
       const node = data.yNodes.get(id)
       if (node) {
-        const finalLabel = localLabel.trim() || 'New Node'
+        const isRoot = id === 'root-node' || node.isRoot
+        const finalLabel = localLabel.trim() 
+                          ? localLabel.trim() 
+                          : (isRoot ? node.label : 'New Node')
         
         data.yNodes.set(id, {
           ...node,

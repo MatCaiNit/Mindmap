@@ -24,6 +24,8 @@ import {
   determineFreeNodeSide,
 } from '../../lib/treeLayout'
 import { PlusCircleIcon, SparklesIcon } from '@heroicons/react/24/solid'
+import { DocumentArrowUpIcon } from '@heroicons/react/24/outline'
+import PDFUploadModal from './PDFUploadModal'
 
 // ─── Theme configs (mirrors Backend/utils/templateToYjs.js) ──────────────────
 // Used when adding new child nodes so they inherit the parent's visual style.
@@ -133,7 +135,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
   const [tempConnTarget,     setTempConnTarget]     = useState(null);
   const [dragStartPos,       setDragStartPos]       = useState(null);
   const [hiddenEdges,        setHiddenEdges]        = useState(new Set());
-
+  const [showPDFModal, setShowPDFModal] = useState(false)
   const user              = useAuthStore(s => s.user);
   const yNodes            = ydoc.getMap('nodes');
   const yEdges            = ydoc.getArray('edges');
@@ -571,6 +573,11 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
+  const safeOnNodesChange = useCallback((changes) => {
+      // Chặn bất kỳ thay đổi nào xóa root-node
+      const safe = changes.filter(c => !(c.type === 'remove' && c.id === 'root-node'))
+      onNodesChange(safe)
+    }, [onNodesChange])
   return (
     <div
       className="w-full h-full relative bg-gradient-to-br from-gray-50 to-gray-100"
@@ -578,7 +585,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     >
       <ReactFlow
         nodes={nodes} edges={edges}
-        onNodesChange={isReadOnly ? undefined : onNodesChange}
+        onNodesChange={isReadOnly ? undefined : safeOnNodesChange}
         onEdgesChange={isReadOnly ? undefined : onEdgesChange}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
@@ -609,6 +616,13 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
             className="bg-white rounded-lg shadow-lg px-3 py-2 hover:shadow-xl transition flex items-center space-x-2">
             <PlusCircleIcon className="w-5 h-5 text-gray-700" />
             <span className="text-sm font-medium">Free Node</span>
+          </button>
+          <button
+            onClick={() => setShowPDFModal(true)}
+            className="bg-white rounded-lg shadow-lg px-3 py-2 hover:shadow-xl transition flex items-center space-x-2"
+          >
+            <DocumentArrowUpIcon className="w-5 h-5 text-gray-700" />
+            <span className="text-sm font-medium">From PDF</span>
           </button>
           <button onClick={handleAIClick}
             className="bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg shadow-lg px-3 py-2 hover:shadow-xl transition flex items-center space-x-2">
@@ -660,6 +674,15 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
 
       {showAIModal && (
         <AIAssistantModal mindmap={mindmap} yNodes={yNodes} yEdges={yEdges} onClose={() => setShowAIModal(false)} />
+      )}
+
+      {showPDFModal && (
+        <PDFUploadModal
+          mindmap={mindmap}
+          yNodes={yNodes}
+          yEdges={yEdges}
+          onClose={() => setShowPDFModal(false)}
+        />
       )}
     </div>
   );

@@ -1,66 +1,52 @@
 /**
- * GenAI/services/pdfExtractor.js  –  UPGRADED
+ * GenAI/services/pdfExtractor.js
  * ==========================================
- * Cải tiến:
- * 1. Dùng pdfjs-dist để đọc chính xác từng trang PDF.
- * 2. Trả về mảng [{ pageNum: 1, text: "..." }, ...] thay vì 1 cục text khổng lồ.
- * 3. Hàm chunkText được nâng cấp để giữ nguyên metadata số trang cho từng chunk.
+ * Giải pháp: Dùng pdf-parse nhưng hook vào pagerender để lấy text từng trang.
+ * Chạy cực kỳ ổn định trên Node.js, không lo lỗi Worker.
  */
 
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+import pdfParse from 'pdf-parse';
 
-// Vô hiệu hóa worker trong môi trường Node.js để tránh lỗi
-pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-
-/**
- * Đọc file PDF từ bộ nhớ (Buffer) và trích xuất chữ theo từng trang.
- * @param {Buffer} buffer - File buffer từ multer
- * @returns {Promise<{pagesData: Array, totalPages: number}>}
- */
 export async function extractTextFromPDF(buffer) {
   try {
-    // Chuyển Buffer của Node.js thành Uint8Array để pdf.js có thể đọc
-    const data = new Uint8Array(buffer);
-    const loadingTask = pdfjsLib.getDocument({ data });
-    const pdfDocument = await loadingTask.promise;
-    
-    const numPages = pdfDocument.numPages;
     const pagesData = [];
 
-    // Lặp qua từng trang để bóc tách chữ
-    for (let i = 1; i <= numPages; i++) {
-      const page = await pdfDocument.getPage(i);
-      const textContent = await page.getTextContent();
+    // Hàm này sẽ được pdf-parse gọi tự động cho mỗi trang PDF nó đọc được
+    const render_page = async function(pageData) {
+      // pageData chính là đối tượng của pdf.js bên dưới hood
+      const textContent = await pageData.getTextContent();
       
-      // Các chữ trong PDF thường bị rời rạc, ta nối chúng lại bằng dấu cách
-      const textItems = textContent.items.map(item => item.str);
-      const pageText = textItems.join(' ');
-      
-      // Xóa các khoảng trắng thừa
-      const cleanedText = pageText.replace(/\s+/g, ' ').trim();
+      // Nối các đoạn text rời rạc trên 1 trang lại
+      const text = textContent.items.map(item => item.str).join(' ');
+      const cleanedText = text.replace(/\s+/g, ' ').trim();
 
+      // Lưu vào mảng của chúng ta kèm theo SỐ TRANG
       pagesData.push({
-        pageNum: i,
+        pageNum: pageData.pageNumber, // pageNumber bắt đầu từ 1
         text: cleanedText
       });
-    }
 
-    console.log(`[PDF Extractor] ✅ Trích xuất thành công ${numPages} trang.`);
-    return { pagesData, totalPages: numPages };
+      // pdf-parse cần trả về string để nó nối thành 1 cục text bự (dù ta không xài tới)
+      return cleanedText;
+    };
+
+    const options = {
+      pagerender: render_page
+    };
+
+    // Đẩy buffer vào pdf-parse kèm theo hàm hook của chúng ta
+    await pdfParse(buffer, options);
+
+    console.log(`[PDF Extractor]  Trích xuất thành công ${pagesData.length} trang.`);
+    return { pagesData, totalPages: pagesData.length };
+    
   } catch (error) {
-    console.error("[PDF Extractor] Lỗi khi đọc file PDF:", error);
-    throw new Error("Không thể trích xuất nội dung từ file PDF này.");
+    console.error("[PDF Extractor] Lỗi thực sự từ thư viện:", error);
+    throw new Error(`Không thể trích xuất nội dung từ file PDF này. Chi tiết: ${error.message}`);
   }
 }
 
-/**
- * Cắt nhỏ text theo từng trang (sliding window có overlap)
- * Khác với bản cũ, bản này sẽ KHÔNG cắt lẹm từ trang này sang trang kia,
- * đảm bảo Chunk số 1 chắc chắn thuộc Trang số 1.
- * * @param {Array} pagesData - Mảng [{ pageNum, text }] từ hàm extract
- * @param {Object} options - Cấu hình chunk
- * @returns {Array} - Mảng các chunks [{ text, pageNum }]
- */
+// Hàm chunkText giữ nguyên như cũ, vì nó đã hoạt động hoàn hảo với mảng pagesData
 export function chunkText(pagesData, options = {}) {
   const { chunkSize = 400, overlap = 80 } = options;
   const chunks = [];
@@ -68,25 +54,21 @@ export function chunkText(pagesData, options = {}) {
   for (const page of pagesData) {
     const { pageNum, text } = page;
     
-    // Tách text của trang thành mảng các từ
     const words = text.split(' ');
     let startIndex = 0;
 
     while (startIndex < words.length) {
-      // Lấy ra số lượng từ bằng chunkSize
       const endIndex = Math.min(startIndex + chunkSize, words.length);
       const chunkWords = words.slice(startIndex, endIndex);
       const chunkTextStr = chunkWords.join(' ');
 
-      // Bỏ qua các chunk quá ngắn (rác dữ liệu)
       if (chunkTextStr.trim().length > 20) {
         chunks.push({
           text: chunkTextStr,
-          pageNum: pageNum // GIÁ TRỊ QUAN TRỌNG NHẤT ĐỂ TRACEBACK!
+          pageNum: pageNum 
         });
       }
 
-      // Nhích cửa sổ lên, trừ đi phần overlap để giữ văn cảnh
       startIndex += (chunkSize - overlap);
     }
   }

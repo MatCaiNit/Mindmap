@@ -1,5 +1,5 @@
 import express from 'express';
-import { deleteChunks, generateFromPdf, generateMindmap, getNodeSource, suggestNode } from '../controllers/ai.controller.js';
+import { generateFromPdf} from '../controllers/ai.controller.js';
 import multer from 'multer'
 
 const router = express.Router();
@@ -18,12 +18,12 @@ const upload = multer({
 })
 
 // POST /ai/generate-mindmap
-router.post('/generate-mindmap', generateMindmap);
+//router.post('/generate-mindmap', generateMindmap);
 
 // POST /ai/suggest
-router.post('/suggest', suggestNode);
+//router.post('/suggest', suggestNode);
 
 router.post('/generate-from-pdf',         upload.single('pdf'), generateFromPdf)
-router.delete('/chunks/:mindmapId',        deleteChunks)
-router.get('/chunks/:mindmapId/node-source', getNodeSource)
+// router.delete('/chunks/:mindmapId',        deleteChunks)
+// router.get('/chunks/:mindmapId/node-source', getNodeSource)
 export default router;

@@ -1,7 +1,5 @@
 import { extractTextFromPDF, chunkText } from '../services/pdfExtractor.js';
 import { embedAndStore } from '../services/embedder.js';
-import { extractTextFromPDF, chunkText } from '../services/pdfExtractor.js'
-import { embedAndStore } from '../services/embedder.js'
 
 export async function generateFromPdf(req, res) {
   try {

@@ -11,13 +11,15 @@
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MongoClient }         from "mongodb";
+import { MongoClient } from "mongodb";
+import dotenv from 'dotenv';
+dotenv.config(); // Ép nạp biến môi trường ngay tại đây cho chắc cú!
 
-const genai       = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMBED_MODEL = "models/text-embedding-004";  // prefix "models/" bắt buộc
-const MONGO_URI   = process.env.MONGO_URI  || "mongodb://localhost:27017";
-const MONGO_DB    = process.env.MONGO_DB   || "mindmap";
-const MONGO_COLL  = process.env.MONGO_COLL || "pdfchunks";
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const EMBED_MODEL = "gemini-embedding-001";  // prefix "models/" bắt buộc
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
+const MONGO_DB = process.env.MONGO_DB || "mindmap";
+const MONGO_COLL = process.env.MONGO_COLL || "pdfchunks";
 const CONCURRENCY = 5;  // max parallel embed calls
 
 // ─── Embed single text ────────────────────────────────────────────────────────
@@ -28,9 +30,9 @@ const CONCURRENCY = 5;  // max parallel embed calls
  * @returns {number[]} embedding vector
  */
 export async function embedText(text, taskType = "RETRIEVAL_DOCUMENT") {
-  const model  = genai.getGenerativeModel({ model: EMBED_MODEL });
+  const model = genai.getGenerativeModel({ model: EMBED_MODEL });
   const result = await model.embedContent({
-    content:  { parts: [{ text }] },
+    content: { parts: [{ text }] },
     taskType,
   });
   return result.embedding.values;  // float32[]
@@ -42,7 +44,7 @@ export async function embedBatch(texts, taskType = "RETRIEVAL_DOCUMENT") {
   const results = new Array(texts.length);
 
   for (let i = 0; i < texts.length; i += CONCURRENCY) {
-    const batch   = texts.slice(i, i + CONCURRENCY);
+    const batch = texts.slice(i, i + CONCURRENCY);
     const vectors = await Promise.all(batch.map(t => embedText(t, taskType)));
     vectors.forEach((v, j) => { results[i + j] = v; });
 
@@ -70,7 +72,7 @@ import PDFChunk from '../models/PDFChunk.js'; // Dùng thẳng Mongoose
 
 export async function embedAndStore(mindmapId, chunks, filename) {
   if (!chunks || chunks.length === 0) return 0;
-  
+
   console.log(`[Embedder] Embedding ${chunks.length} chunks...`);
   const texts = chunks.map(c => c.text);
   const vectors = await embedBatch(texts, "RETRIEVAL_DOCUMENT");
@@ -82,14 +84,14 @@ export async function embedAndStore(mindmapId, chunks, filename) {
     text: chunk.text,
     embedding: vectors[i],
     chunkIndex: chunk.chunkIndex ?? i,
-    metadata: { 
-       filename: filename, 
-       pageEstimate: chunk.pageNum 
+    metadata: {
+      filename: filename,
+      pageEstimate: chunk.pageNum
     }
   }));
 
   await PDFChunk.insertMany(docs);
-  console.log(`[Embedder] ✅ Stored ${docs.length} chunks`);
+  console.log(`[Embedder]  Stored ${docs.length} chunks`);
   return docs.length;
 }
 
@@ -104,19 +106,19 @@ export async function createVectorIndex() {
     await db.command({
       createSearchIndexes: MONGO_COLL,
       indexes: [{
-        name:       "embedding_index",
-        type:       "vectorSearch",
+        name: "embedding_index",
+        type: "vectorSearch",
         definition: {
           fields: [{
-            type:          "vector",
-            path:          "embedding",
+            type: "vector",
+            path: "embedding",
             numDimensions: 768,  // gemini-embedding-001 output dim
-            similarity:    "cosine",
+            similarity: "cosine",
           }],
         },
       }],
     });
-    console.log("[Embedder] ✅ Vector search index created");
+    console.log("[Embedder]  Vector search index created");
   } catch (err) {
     if (err.codeName === "IndexAlreadyExists") {
       console.log("[Embedder] Index already exists, skipping.");

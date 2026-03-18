@@ -34,9 +34,9 @@ export default function EditorPage() {
 
     async function load() {
       try {
-        const data = await mindmapService.getMindmap(id)
+        const data = await mindmapService.get(id)
         if (cancelled) return
-        setMindmap({ ...data.mindmap, currentUserId: user?.id || user?._id })
+        setMindmap({ ...data, currentUserId: user?.id || user?._id })
         setUserRole(data.access || 'viewer')
       } catch (err) {
         if (!cancelled)
@@ -70,6 +70,23 @@ export default function EditorPage() {
         provider.wsProvider.on('sync', (isSynced) => setSynced(isSynced))
 
         undoManagerRef.current = createUndoManager(provider.ydoc)
+        // Sau khi tạo, override để bảo vệ root-node
+        const um = undoManagerRef.current
+        const originalUndo = um.undo.bind(um)
+        um.undo = () => {
+          originalUndo()
+          // Sau khi undo, nếu root-node bị xóa thì restore lại
+          const yNodes = provider.ydoc.getMap('nodes')
+          if (!yNodes.get('root-node')) {
+            yNodes.set('root-node', {
+              label:     mindmap.title || 'Main Topic',
+              position:  { x: 600, y: 400 },
+              color:     '#3b82f6',
+              level:     0, parentId: null, side: null,
+              autoAlign: true, isRoot: true,
+            })
+          }
+        }
       } catch (err) {
         console.error('Yjs setup error:', err)
         if (!cancelled) setError('Failed to connect to realtime server')
