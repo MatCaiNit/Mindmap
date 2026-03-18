@@ -1,0 +1,218 @@
+{
+  "root": {
+    "text": "Dự án Sơ đồ tư duy (Mindmap)",
+    "children": [
+      {
+        "text": "Thông tin chung",
+        "children": [
+          {
+            "text": "Sinh viên: Nguyễn Mạnh Quỳnh",
+            "children": []
+          },
+          {
+            "text": "Giảng viên: PGS.TS. Võ Đình Hiếu",
+            "children": []
+          },
+          {
+            "text": "Môn học: Dự án công nghệ (INT3132)",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Mục tiêu dự án",
+        "children": [
+          {
+            "text": "Quản lý người dùng và xác thực",
+            "children": [
+              {
+                "text": "Đăng ký/Đăng nhập (JWT)"
+              },
+              {
+                "text": "Quản lý profile, đổi mật khẩu, avatar"
+              },
+              {
+                "text": "Refresh token tự động"
+              }
+            ]
+          },
+          {
+            "text": "Tạo và quản lý sơ đồ",
+            "children": [
+              {
+                "text": "Tạo mới (tiêu đề, mô tả)"
+              },
+              {
+                "text": "Thao tác nodes (thêm, sửa, xóa)"
+              },
+              {
+                "text": "Tùy chỉnh (màu sắc, font, style)"
+              },
+              {
+                "text": "Kết nối (parent-child, custom)"
+              }
+            ]
+          },
+          {
+            "text": "Cộng tác thời gian thực",
+            "children": [
+              {
+                "text": "Chỉnh sửa đồng thời"
+              },
+              {
+                "text": "Hiển thị thành viên online"
+              },
+              {
+                "text": "Đồng bộ tức thì (CRDT/Yjs)"
+              }
+            ]
+          },
+          {
+            "text": "Quản lý quyền",
+            "children": [
+              {
+                "text": "Owner (toàn quyền)"
+              },
+              {
+                "text": "Editor (chỉnh sửa, lưu version)"
+              },
+              {
+                "text": "Viewer (read-only)"
+              }
+            ]
+          },
+          {
+            "text": "Version Control",
+            "children": [
+              {
+                "text": "Auto-save (mỗi 10s)"
+              },
+              {
+                "text": "Lưu thủ công (label tùy chỉnh)"
+              },
+              {
+                "text": "Xem lịch sử, khôi phục"
+              }
+            ]
+          },
+          {
+            "text": "Tích hợp AI",
+            "children": [
+              {
+                "text": "Sinh sơ đồ từ text prompt"
+              },
+              {
+                "text": "Đề xuất node con theo ngữ cảnh"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Công nghệ sử dụng",
+        "children": [
+          {
+            "text": "Frontend",
+            "children": [
+              {
+                "text": "React, ReactFlow, Zustand, React Query, Axios, Tailwind CSS"
+              }
+            ]
+          },
+          {
+            "text": "Backend",
+            "children": [
+              {
+                "text": "Node.js, Express, MongoDB, Mongoose, JWT, Bcrypt, Multer"
+              }
+            ]
+          },
+          {
+            "text": "Realtime",
+            "children": [
+              {
+                "text": "WebSocket, Yjs (CRDT), y-websocket"
+              }
+            ]
+          },
+          {
+            "text": "AI Service",
+            "children": [
+              {
+                "text": "OpenAI API (GPT-4, GPT-4o-mini)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Thiết kế hệ thống",
+        "children": [
+          {
+            "text": "Cơ sở dữ liệu (MongoDB)",
+            "children": [
+              {
+                "text": "User (email, password hash, avatar)"
+              },
+              {
+                "text": "Mindmap (metadata, collaborators)"
+              },
+              {
+                "text": "Version (snapshot, label, createdBy)"
+              },
+              {
+                "text": "Notification (invite, status, read)"
+              },
+              {
+                "text": "RefreshToken (TTL index, rotation)"
+              },
+              {
+                "text": "AuditLog (lịch sử action)"
+              }
+            ]
+          },
+          {
+            "text": "Luồng xử lý chính",
+            "children": [
+              {
+                "text": "Authentication (JWT flow)"
+              },
+              {
+                "text": "Create Mindmap (init Y.Doc, root node)"
+              },
+              {
+                "text": "Real-time Edit (Yjs update, broadcast)"
+              },
+              {
+                "text": "Save/Restore Version (snapshot base64)"
+              },
+              {
+                "text": "AI Generation (JSON response, auto-layout)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Yêu cầu phi chức năng",
+        "children": [
+          {
+            "text": "Performance (Latency < 1s, AI < 10s)"
+          },
+          {
+            "text": "Scalability (Concurrent users)"
+          },
+          {
+            "text": "Security (Bcrypt, JWT, RBAC)"
+          },
+          {
+            "text": "Usability (Material Design, Shortcuts)"
+          },
+          {
+            "text": "Reliability (Auto-reconnect, Backup)"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "threshold": 0.82,
+  "metrics": {
+    "recall": 0.7027,
+    "precision": 0.9268,
+    "f1": 0.7994,
+    "avg_sim_xmind": 0.843,
+    "avg_sim_rag": 0.8708
+  },
+  "stats": {
+    "xmind_topics": 111,
+    "rag_topics": 41,
+    "xmind_depth": 4.0,
+    "rag_depth": 3.8,
+    "xmind_label": 27.1,
+    "rag_label": 31.3
+  },
+  "missing": [
+    {
+      "topic": "MindMapper > Giới thiệu > Đặt vấn đề > giao diện phức tạp",
+      "sim": 0.764
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > bình luận chú thích gắn thẻ",
+      "sim": 0.771
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Kết luận > auto-layout balanced tree",
+      "sim": 0.781
+    },
+    {
+      "topic": "MindMapper > Giới thiệu > Đặt vấn đề > quản lý phiên bản kém",
+      "sim": 0.782
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > offline mode",
+      "sim": 0.785
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế giao diện > Thanh công cụ node bold italic underline fontsize color AI suggest connection",
+      "sim": 0.789
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế Use Case > UC-05 xem danh sách",
+      "sim": 0.791
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Kết luận > notification real-time audit logging",
+      "sim": 0.793
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > templates",
+      "sim": 0.793
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Sơ đồ tư duy > Sub-branches chi tiết",
+      "sim": 0.795
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Yêu cầu phi chức năng > NFR-06 maintainability MVC",
+      "sim": 0.795
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Backend RESTful API > PUT PATCH cập nhật",
+      "sim": 0.796
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Kết luận > undo redo UndoManager",
+      "sim": 0.796
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Backend RESTful API > Stateless JSON HTTP status codes",
+      "sim": 0.797
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > Mobile app iOS Android",
+      "sim": 0.801
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Sơ đồ tư duy > Branches nhánh con",
+      "sim": 0.802
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế Use Case > UC-13 accept reject invite",
+      "sim": 0.802
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Backend RESTful API > GET lấy dữ liệu",
+      "sim": 0.803
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Backend RESTful API > DELETE xóa",
+      "sim": 0.804
+    },
+    {
+      "topic": "MindMapper > Cơ sở lý thuyết > Backend RESTful API > POST tạo mới",
+      "sim": 0.807
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế giao diện > Dashboard my mindmaps shared",
+      "sim": 0.81
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Yêu cầu chức năng > FR-06 collab management",
+      "sim": 0.812
+    },
+    {
+      "topic": "MindMapper > Triển khai hệ thống > Môi trường phát triển > OpenAI client 6.15",
+      "sim": 0.812
+    },
+    {
+      "topic": "MindMapper > Giới thiệu > Đặt vấn đề > thiếu hỗ trợ AI",
+      "sim": 0.813
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế giao diện > Editor page ReactFlow canvas",
+      "sim": 0.813
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Kiến trúc hệ thống > Frontend port 3000 React Vite",
+      "sim": 0.815
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > Google OAuth",
+      "sim": 0.815
+    },
+    {
+      "topic": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển > tối ưu hiệu năng node lớn",
+      "sim": 0.815
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Yêu cầu chức năng > FR-03 vẽ chỉnh sửa",
+      "sim": 0.816
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế Use Case > UC-11 mời collaborators",
+      "sim": 0.816
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế Use Case > UC-12 quản lý team",
+      "sim": 0.816
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế giao diện > AI Assistant popup",
+      "sim": 0.819
+    },
+    {
+      "topic": "MindMapper > Phân tích thiết kế > Thiết kế Use Case > UC-01 đăng ký",
+      "sim": 0.82
+    }
+  ],
+  "extra": [
+    {
+      "topic": "Dự án Sơ đồ tư duy (Mindmap) > Thông tin chung > Giảng viên: PGS.TS. Võ Đình Hiếu",
+      "sim": 0.791
+    },
+    {
+      "topic": "Dự án Sơ đồ tư duy (Mindmap) > Thông tin chung > Sinh viên: Nguyễn Mạnh Quỳnh",
+      "sim": 0.8
+    },
+    {
+      "topic": "Dự án Sơ đồ tư duy (Mindmap) > Thông tin chung > Môn học: Dự án công nghệ (INT3132)",
+      "sim": 0.803
+    }
+  ]
+}

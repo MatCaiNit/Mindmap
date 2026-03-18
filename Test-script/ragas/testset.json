@@ -1,62 +1,92 @@
 [
   {
-    "question": "Hệ thống MindMapper chạy trên những port nào?",
-    "ground_truth": "Frontend chạy trên port 3000, Backend chạy trên port 5000, Realtime Server chạy trên port 1234, AI Service chạy trên port 4000."
+    "question": "Giải thích các công nghệ và thư viện được sử dụng cho môi trường phát triển của hệ thống MindMapper, bao gồm các danh mục chính như frontend, backend, cơ sở dữ liệu và các công nghệ liên quan khác.",
+    "ground_truth": "Môi trường phát triển của hệ thống MindMapper sử dụng các công nghệ và thư viện sau: \n- Hệ điều hành: Windows, Linux, macOS\n- Lập trình Node.js: Phiên bản 18.x\n- Cơ sở dữ liệu: MongoDB phiên bản 6.0 trở lên\n- Frontend: React phiên bản 18.2, Vite phiên bản 5.0, ReactFlow phiên bản 12.0, Tailwind CSS phiên bản 3.3, Zustand phiên bản 4.4, React Query phiên bản 5.8\n- Backend: Express phiên bản 4.18, Mongoose phiên bản 7.3, JWT, bcryptjs, Multer\n- Real-time/Collaboration: WebSocket, thư viện `ws` phiên bản 8.18, `y-websocket` phiên bản 2.0.4\n- Collaboration core: Yjs phiên bản 13.6\n- OpenAI integration: OpenAI client phiên bản 6.15",
+    "source_chunk": "MindMapper > Triển khai hệ thống > Môi trường phát triển: Windows Linux macOS Node.js 18.x MongoDB 6.0+, React 18.2 Vite 5.0 ReactFlow 12.0 Tailwind 3.3 Zustand 4.4 React Query 5.8 Yjs 13.6, Express 4.18 Mongoose 7.3 JWT bcryptjs Multer, WebSocket ws 8.18 y-websocket 2.0.4, OpenAI client 6.15"
   },
   {
-    "question": "Những vấn đề gì của các công cụ mindmap hiện tại mà dự án muốn giải quyết?",
-    "ground_truth": "Thiếu tính cộng tác thời gian thực, giao diện phức tạp, thiếu hỗ trợ AI, quản lý phiên bản kém."
+    "question": "Liệt kê các Use Case được đề cập trong phần Thiết kế Use Case của MindMapper.",
+    "ground_truth": "Các Use Case được đề cập bao gồm: UC-01 đăng ký, UC-02 đăng nhập, UC-03 quản lý profile, UC-04 tạo mindmap, UC-05 xem danh sách, UC-06 vẽ mindmap, UC-07 real-time collaboration, UC-08 lưu version, UC-09 xem history, UC-10 restore version, UC-11 mời collaborators, UC-12 quản lý team, UC-13 accept reject invite, UC-14 generate AI, UC-15 suggest AI.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Thiết kế Use Case: UC-01 đăng ký, UC-02 đăng nhập, UC-03 quản lý profile, UC-04 tạo mindmap, UC-05 xem danh sách, UC-06 vẽ mindmap, UC-07 real-time collaboration, UC-08 lưu version, UC-09 xem history, UC-10 restore version, UC-11 mời collaborators, UC-12 quản lý team, UC-13 accept reject invite, UC-14 generate AI, UC-15 suggest AI"
   },
   {
-    "question": "Dự án sử dụng thuật toán gì để đồng bộ dữ liệu thời gian thực?",
-    "ground_truth": "Dự án sử dụng Yjs – một framework CRDT (Conflict-free Replicated Data Type) để đồng bộ dữ liệu phân tán, đảm bảo eventual consistency."
+    "question": "Giải thích các cổng và công nghệ được sử dụng trong kiến trúc hệ thống của MindMapper.",
+    "ground_truth": "Kiến trúc hệ thống của MindMapper sử dụng cổng 3000 cho Frontend với React và Vite, cổng 5000 cho Backend với Express và Node.js, cổng 1234 cho Realtime với WebSocket và Yjs, cổng 4000 cho AI Service với OpenAI, và cổng 27017 cho Database MongoDB.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Kiến trúc hệ thống: Frontend port 3000 React Vite, Backend port 5000 Express Node.js, Realtime port 1234 WebSocket Yjs, AI Service port 4000 OpenAI, Database MongoDB port 27017"
   },
   {
-    "question": "Frontend sử dụng những thư viện chính nào?",
-    "ground_truth": "React 18.2 với Vite 5.0, ReactFlow 12.0 để vẽ mindmap, Zustand 4.4 quản lý state, React Query 5.8 cho data fetching, Tailwind CSS 3.3 cho styling, Yjs và y-websocket cho real-time."
+    "question": "Định hướng phát triển của MindMapper bao gồm những tính năng nào cho ứng dụng di động?",
+    "ground_truth": "Định hướng phát triển của MindMapper bao gồm: ứng dụng mobile cho iOS và Android, chế độ offline, templates, Google OAuth, AI tự động tối ưu bố cục, gợi ý thông minh đa ngôn ngữ, bình luận chú thích gắn thẻ, và tối ưu hiệu năng cho node lớn.",
+    "source_chunk": "MindMapper > Kết luận và hướng phát triển > Định hướng phát triển: Mobile app iOS Android, offline mode, templates, Google OAuth, AI tự động tối ưu bố cục gợi ý thông minh đa ngôn ngữ, bình luận chú thích gắn thẻ, tối ưu hiệu năng node lớn"
   },
   {
-    "question": "AI Service trong dự án sử dụng model AI nào?",
-    "ground_truth": "AI Service sử dụng OpenAI GPT-4o-mini."
+    "question": "Theo khái niệm \"Đặt vấn đề\" trong MindMapper, những hạn chế chính của hệ thống hiện tại là gì?",
+    "ground_truth": "Những hạn chế chính bao gồm thiếu cộng tác thời gian thực, giao diện phức tạp, thiếu hỗ trợ AI và quản lý phiên bản kém.",
+    "source_chunk": "MindMapper > Giới thiệu > Đặt vấn đề: Thiếu cộng tác thời gian thực, giao diện phức tạp, thiếu hỗ trợ AI, quản lý phiên bản kém"
   },
   {
-    "question": "Hệ thống lưu dữ liệu Yjs như thế nào trong database?",
-    "ground_truth": "Trạng thái Y.Doc được mã hóa thành binary update, lưu vào MongoDB dưới dạng Buffer (snapshot). Khi tải lại, các update được apply lên Y.Doc rỗng để khôi phục trạng thái."
+    "question": "Giải thích các thành phần chính trong mục \"Thiết kế giao diện\" của \"Phân tích thiết kế\" theo MindMapper, bao gồm các trang và các popup.",
+    "ground_truth": "Mục \"Thiết kế giao diện\" bao gồm các thành phần: Đăng nhập đăng ký, Dashboard my mindmaps shared, Profile page, Create mindmap popup, Editor page ReactFlow canvas, Save version popup history, AI Assistant popup, và Thanh công cụ node với các chức năng bold, italic, underline, fontsize, color, AI suggest connection.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Thiết kế giao diện: Đăng nhập đăng ký, Dashboard my mindmaps shared, Profile page, Create mindmap popup, Editor page ReactFlow canvas, Save version popup history, AI Assistant popup, Thanh công cụ node bold italic underline fontsize color AI suggest connection"
   },
   {
-    "question": "Backend và Realtime Server giao tiếp với nhau như thế nào?",
-    "ground_truth": "Backend và Realtime Server giao tiếp qua HTTP với service token xác thực trong header x-service-token. Mục đích là trigger snapshot save và verify user access."
+    "question": "Explain the role of WebSocket and Yjs CRDT in Real-time Collaboration within MindMapper.",
+    "ground_truth": "WebSocket provides a full-duplex TCP connection, while Yjs CRDT ensures eventual consistency. Y.Map is used for nodes and Y.Array for edges, with UndoManager and a captureTimeout of 500 milliseconds facilitating collaboration.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > Real-time Collaboration WebSocket Yjs: WebSocket full-duplex TCP, Yjs CRDT eventual consistency, Y.Map nodes Y.Array edges, UndoManager captureTimeout 500"
   },
   {
-    "question": "Access token và refresh token có thời hạn bao lâu?",
-    "ground_truth": "Access token có thời hạn 15 phút, refresh token có thời hạn 7 ngày."
+    "question": "Explain the fields associated with the 'Mindmap' entity in the database design.",
+    "ground_truth": "The 'Mindmap' entity includes fields for title, ownerId, ydocId, collaborators, and snapshot.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Thiết kế cơ sở dữ liệu: User email password name avatarUrl provider, Mindmap title ownerId ydocId collaborators snapshot, Version mindmapId snapshot encodedState userId type label size, Notification type toUser fromUser mindmap role status read, RefreshToken userId token expiresAt TTL index, AuditLog mindmapId userId action detail"
   },
   {
-    "question": "Quy trình Save Version diễn ra như thế nào?",
-    "ground_truth": "Frontend gọi POST /api/mindmaps/:id/versions/save, Backend gọi internal API tới Realtime Server để lấy snapshot, Realtime encode Y.Doc thành base64, Backend tạo Version document lưu vào MongoDB và cập nhật Mindmap.snapshot."
+    "question": "Hệ thống quản lý người dùng đăng nhập JWT trong dự án MindMapper có những chức năng chính nào?",
+    "ground_truth": "Dự án MindMapper bao gồm quản lý người dùng đăng nhập JWT, quản lý profile, CRUD mindmaps, version control, lưu tự động, khôi phục, hệ thống thông báo và AI collaboration.",
+    "source_chunk": "MindMapper > Giới thiệu > Mục tiêu dự án: Quản lý người dùng đăng nhập JWT, quản lý profile, CRUD mindmaps, version control, lưu tự động, khôi phục, hệ thống thông báo, AI collaboration"
   },
   {
-    "question": "MongoDB có bao nhiêu collections chính và đó là những collection nào?",
-    "ground_truth": "Hệ thống có 6 collections chính: User, Mindmap, Version, Notification, RefreshToken, AuditLog."
+    "question": "Giải thích tại sao MongoDB lại được mô tả là có 'schema linh hoạt' trong ngữ cảnh của MindMapper?",
+    "ground_truth": "MongoDB được mô tả là có schema linh hoạt vì nó lưu trữ dữ liệu dưới dạng các tài liệu BSON, cho phép cấu trúc dữ liệu thay đổi giữa các tài liệu mà không cần định nghĩa schema cố định trước, phù hợp với nhu cầu lưu trữ các phiên bản mindmap khác nhau hoặc thông tin người dùng đa dạng.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > Cơ sở dữ liệu: MongoDB NoSQL document BSON schema linh hoạt, Mongoose ODM validation middleware, lưu users mindmaps versions"
   },
   {
-    "question": "Collaborator trong Mindmap có những role nào?",
-    "ground_truth": "Collaborator có 2 role: editor (được phép chỉnh sửa nội dung và lưu version) và viewer (chỉ xem, không sửa được)."
+    "question": "Giải thích chức năng chính của mô hình GPT-4o-mini trong ngữ cảnh của MindMapper dựa trên mô tả đã cho.",
+    "ground_truth": "GPT-4o-mini trong MindMapper có chức năng chính là hiểu ngôn ngữ tự nhiên (natural language understanding), sinh văn bản (text generation), thực hiện học ít mẫu (few-shot learning), gọi API để sinh cấu trúc mindmap dưới dạng JSON và gợi ý các node.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > OpenAI GPT Model: GPT-4o-mini natural language understanding text generation few-shot learning, gọi API sinh JSON mindmap structure và gợi ý nodes"
   },
   {
-    "question": "Refresh token được quản lý theo cơ chế nào?",
-    "ground_truth": "Refresh token dùng token rotation: mỗi lần refresh, token cũ bị xóa và tạo token mới. Token chỉ dùng 1 lần (one-time use), hết hạn sau 7 ngày, MongoDB dùng TTL index để tự động xóa token hết hạn."
+    "question": "Giải thích vai trò của các phương thức HTTP GET, POST, PUT, PATCH và DELETE trong một RESTful API cho việc quản lý dữ liệu.",
+    "ground_truth": "Trong một RESTful API, GET dùng để lấy dữ liệu, POST dùng để tạo mới, PUT và PATCH dùng để cập nhật dữ liệu, và DELETE dùng để xóa dữ liệu.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > Backend RESTful API: GET lấy dữ liệu, POST tạo mới, PUT PATCH cập nhật, DELETE xóa, Stateless JSON HTTP status codes"
   },
   {
-    "question": "Tính năng version control hỗ trợ những loại version nào?",
-    "ground_truth": "Hệ thống hỗ trợ 4 loại version: manual (lưu thủ công), auto (tự động), restore (tạo khi restore version cũ), delete-backup (tạo trước khi xóa mindmap)."
+    "question": "Trong sơ đồ tư duy theo khái niệm MindMapper, các yếu tố 'Root node chủ đề chính', 'Branches nhánh con', 'Sub-branches chi tiết', 'Connections liên kết', và 'Colors phân biệt nhóm' có vai trò gì?",
+    "ground_truth": "Trong sơ đồ tư duy theo khái niệm MindMapper, 'Root node chủ đề chính' là nút gốc của chủ đề chính, 'Branches nhánh con' là các nhánh con phát triển từ chủ đề chính, 'Sub-branches chi tiết' là các chi tiết hơn của nhánh con, 'Connections liên kết' dùng để tạo liên kết giữa các ý tưởng, và 'Colors phân biệt nhóm' giúp phân biệt các nhóm ý tưởng khác nhau.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > Sơ đồ tư duy: Root node chủ đề chính, Branches nhánh con, Sub-branches chi tiết, Connections liên kết, Colors phân biệt nhóm"
   },
   {
-    "question": "Keyboard shortcuts nào được hỗ trợ trong editor?",
-    "ground_truth": "Tab thêm child node, Enter thêm sibling node, Delete/Backspace xóa node, Ctrl+Z undo, Ctrl+Y redo, Escape thoát connection mode, Double-click chỉnh text node."
+    "question": "Liệt kê các yêu cầu chức năng liên quan đến việc quản lý và cộng tác trong MindMapper.",
+    "ground_truth": "Các yêu cầu chức năng liên quan đến quản lý và cộng tác trong MindMapper bao gồm FR-01 quản lý tài khoản JWT, FR-04 real-time collaboration, FR-06 collab management.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Yêu cầu chức năng: FR-01 quản lý tài khoản JWT, FR-02 CRUD mindmap, FR-03 vẽ chỉnh sửa, FR-04 real-time collaboration, FR-05 version control, FR-06 collab management, FR-07 notification, FR-08 AI, FR-09 keyboard shortcuts"
   },
   {
-    "question": "Các yêu cầu phi chức năng về performance là gì?",
-    "ground_truth": "Real-time sync latency dưới 1 giây, API response time dưới 2 giây, AI generation dưới 10 giây, auto-layout dưới 500ms cho 100 nodes, frontend bundle size dưới 1MB gzipped."
+    "question": "Chức năng nào của MindMapper liên quan đến việc tạo ra các bản đồ tư duy bằng trí tuệ nhân tạo?",
+    "ground_truth": "Chức năng AI generate mindmap cho phép tạo bản đồ tư duy bằng trí tuệ nhân tạo.",
+    "source_chunk": "MindMapper > Giới thiệu > Phạm vi nghiên cứu: Chức năng đã triển khai gồm đăng ký đăng nhập JWT, CRUD mindmaps, real-time collaboration, version control, AI generate mindmap, AI suggest nodes"
+  },
+  {
+    "question": "Nêu các yêu cầu về bảo mật (security) được đề cập trong NFR-03 của phân tích thiết kế MindMapper?",
+    "ground_truth": "Các yêu cầu về bảo mật trong NFR-03 bao gồm bcrypt, JWT và RBAC.",
+    "source_chunk": "MindMapper > Phân tích thiết kế > Yêu cầu phi chức năng: NFR-01 latency dưới 1s API dưới 2s AI dưới 10s, NFR-02 scalability concurrent users, NFR-03 security bcrypt JWT RBAC, NFR-04 usability Material Design, NFR-05 reliability auto-reconnect, NFR-06 maintainability MVC"
+  },
+  {
+    "question": "Giải thích các công nghệ được sử dụng trong MindMapper cho cả phần frontend và backend.",
+    "ground_truth": "MindMapper sử dụng React, ReactFlow và Zustand cho frontend; Node.js, Express và MongoDB cho backend; WebSocket và Yjs cho realtime; và OpenAI GPT-4o-mini cho dịch vụ AI.",
+    "source_chunk": "MindMapper > Giới thiệu > Công nghệ sử dụng: Frontend React ReactFlow Zustand, Backend Node.js Express MongoDB, Realtime WebSocket Yjs, AI Service OpenAI GPT-4o-mini"
+  },
+  {
+    "question": "Giải thích cách ReactFlow xử lý các tương tác như kéo, thu phóng và di chuyển trong một ứng dụng mindmap dựa trên component và quản lý state bằng React.",
+    "ground_truth": "ReactFlow xử lý các tương tác kéo, thu phóng và di chuyển (drag, zoom, pan) thông qua các tính năng tích hợp của nó, cho phép người dùng thao tác trực quan trên các node và edge trong giao diện mindmap.",
+    "source_chunk": "MindMapper > Cơ sở lý thuyết > Frontend React ReactFlow: Component-based quản lý state, ReactFlow render node edge drag zoom pan, Luồng dữ liệu qua Yjs đồng bộ"
   }
 ]
