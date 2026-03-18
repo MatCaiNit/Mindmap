@@ -1,40 +1,95 @@
-import pdfParse from 'pdf-parse'
+/**
+ * GenAI/services/pdfExtractor.js  –  UPGRADED
+ * ==========================================
+ * Cải tiến:
+ * 1. Dùng pdfjs-dist để đọc chính xác từng trang PDF.
+ * 2. Trả về mảng [{ pageNum: 1, text: "..." }, ...] thay vì 1 cục text khổng lồ.
+ * 3. Hàm chunkText được nâng cấp để giữ nguyên metadata số trang cho từng chunk.
+ */
 
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+
+// Vô hiệu hóa worker trong môi trường Node.js để tránh lỗi
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+
+/**
+ * Đọc file PDF từ bộ nhớ (Buffer) và trích xuất chữ theo từng trang.
+ * @param {Buffer} buffer - File buffer từ multer
+ * @returns {Promise<{pagesData: Array, totalPages: number}>}
+ */
 export async function extractTextFromPDF(buffer) {
-  const data = await pdfParse(buffer)
-  return { text: data.text, pages: data.numpages }
+  try {
+    // Chuyển Buffer của Node.js thành Uint8Array để pdf.js có thể đọc
+    const data = new Uint8Array(buffer);
+    const loadingTask = pdfjsLib.getDocument({ data });
+    const pdfDocument = await loadingTask.promise;
+    
+    const numPages = pdfDocument.numPages;
+    const pagesData = [];
+
+    // Lặp qua từng trang để bóc tách chữ
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdfDocument.getPage(i);
+      const textContent = await page.getTextContent();
+      
+      // Các chữ trong PDF thường bị rời rạc, ta nối chúng lại bằng dấu cách
+      const textItems = textContent.items.map(item => item.str);
+      const pageText = textItems.join(' ');
+      
+      // Xóa các khoảng trắng thừa
+      const cleanedText = pageText.replace(/\s+/g, ' ').trim();
+
+      pagesData.push({
+        pageNum: i,
+        text: cleanedText
+      });
+    }
+
+    console.log(`[PDF Extractor] ✅ Trích xuất thành công ${numPages} trang.`);
+    return { pagesData, totalPages: numPages };
+  } catch (error) {
+    console.error("[PDF Extractor] Lỗi khi đọc file PDF:", error);
+    throw new Error("Không thể trích xuất nội dung từ file PDF này.");
+  }
 }
 
-// Chunk thông minh — sliding window có overlap
-export function chunkText(text, options = {}) {
-  const { chunkSize = 400, overlap = 80 } = options
+/**
+ * Cắt nhỏ text theo từng trang (sliding window có overlap)
+ * Khác với bản cũ, bản này sẽ KHÔNG cắt lẹm từ trang này sang trang kia,
+ * đảm bảo Chunk số 1 chắc chắn thuộc Trang số 1.
+ * * @param {Array} pagesData - Mảng [{ pageNum, text }] từ hàm extract
+ * @param {Object} options - Cấu hình chunk
+ * @returns {Array} - Mảng các chunks [{ text, pageNum }]
+ */
+export function chunkText(pagesData, options = {}) {
+  const { chunkSize = 400, overlap = 80 } = options;
+  const chunks = [];
 
-  const paragraphs = text
-    .replace(/\r\n/g, '\n')
-    .split(/\n{2,}/)
-    .map(p => p.trim())
-    .filter(p => p.length > 20)
+  for (const page of pagesData) {
+    const { pageNum, text } = page;
+    
+    // Tách text của trang thành mảng các từ
+    const words = text.split(' ');
+    let startIndex = 0;
 
-  const chunks = []
-  let currentChunk = ''
-  let currentSize  = 0
+    while (startIndex < words.length) {
+      // Lấy ra số lượng từ bằng chunkSize
+      const endIndex = Math.min(startIndex + chunkSize, words.length);
+      const chunkWords = words.slice(startIndex, endIndex);
+      const chunkTextStr = chunkWords.join(' ');
 
-  for (const para of paragraphs) {
-    const paraWords = para.split(' ').length
+      // Bỏ qua các chunk quá ngắn (rác dữ liệu)
+      if (chunkTextStr.trim().length > 20) {
+        chunks.push({
+          text: chunkTextStr,
+          pageNum: pageNum // GIÁ TRỊ QUAN TRỌNG NHẤT ĐỂ TRACEBACK!
+        });
+      }
 
-    if (currentSize + paraWords > chunkSize && currentChunk) {
-      chunks.push(currentChunk.trim())
-      // Giữ overlap để không mất context ở ranh giới chunk
-      const words       = currentChunk.split(' ')
-      const overlapText = words.slice(-overlap).join(' ')
-      currentChunk = overlapText + ' ' + para
-      currentSize  = overlap + paraWords
-    } else {
-      currentChunk += (currentChunk ? '\n\n' : '') + para
-      currentSize  += paraWords
+      // Nhích cửa sổ lên, trừ đi phần overlap để giữ văn cảnh
+      startIndex += (chunkSize - overlap);
     }
   }
 
-  if (currentChunk.trim()) chunks.push(currentChunk.trim())
-  return chunks
+  return chunks;
 }

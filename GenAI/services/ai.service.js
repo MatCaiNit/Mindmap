@@ -13,7 +13,7 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import { HybridRetriever } from "./retriever.js";
 
 const genai     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const GEN_MODEL = "gemini-3.1-flash-lite-preview";
+const GEN_MODEL = "gemini-3.1-flash";
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
 
 // ─── Safety settings (giữ nguyên cho technical docs) ──────────────────────────

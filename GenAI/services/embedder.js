@@ -14,7 +14,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MongoClient }         from "mongodb";
 
 const genai       = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMBED_MODEL = "models/gemini-embedding-001";  // prefix "models/" bắt buộc
+const EMBED_MODEL = "models/text-embedding-004";  // prefix "models/" bắt buộc
 const MONGO_URI   = process.env.MONGO_URI  || "mongodb://localhost:27017";
 const MONGO_DB    = process.env.MONGO_DB   || "mindmap";
 const MONGO_COLL  = process.env.MONGO_COLL || "pdfchunks";
@@ -66,38 +66,31 @@ export async function embedBatch(texts, taskType = "RETRIEVAL_DOCUMENT") {
  * @param {Array}    chunks     – [{text, pageNum, topic, chunkIndex, ...}]
  * @returns {number} số chunks đã upsert
  */
-export async function embedAndStore(mindmapId, chunks) {
+import PDFChunk from '../models/PDFChunk.js'; // Dùng thẳng Mongoose
+
+export async function embedAndStore(mindmapId, chunks, filename) {
   if (!chunks || chunks.length === 0) return 0;
+  
+  console.log(`[Embedder] Embedding ${chunks.length} chunks...`);
+  const texts = chunks.map(c => c.text);
+  const vectors = await embedBatch(texts, "RETRIEVAL_DOCUMENT");
 
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  const coll = client.db(MONGO_DB).collection(MONGO_COLL);
+  await PDFChunk.deleteMany({ mindmapId }); // Xóa cũ
 
-  try {
-    console.log(`[Embedder] Embedding ${chunks.length} chunks for mindmap ${mindmapId}…`);
-    
-    const texts   = chunks.map(c => c.text);
-    const vectors = await embedBatch(texts, "RETRIEVAL_DOCUMENT");
+  const docs = chunks.map((chunk, i) => ({
+    mindmapId,
+    text: chunk.text,
+    embedding: vectors[i],
+    chunkIndex: chunk.chunkIndex ?? i,
+    metadata: { 
+       filename: filename, 
+       pageEstimate: chunk.pageNum 
+    }
+  }));
 
-    // Upsert (xóa cũ rồi insert mới để tránh duplicate)
-    await coll.deleteMany({ mindmapId });
-
-    const docs = chunks.map((chunk, i) => ({
-      mindmapId,
-      text:       chunk.text,
-      pageNum:    chunk.pageNum    ?? null,
-      topic:      chunk.topic      ?? null,
-      chunkIndex: chunk.chunkIndex ?? i,
-      embedding:  vectors[i],
-      createdAt:  new Date(),
-    }));
-
-    await coll.insertMany(docs);
-    console.log(`[Embedder] ✅ Stored ${docs.length} chunks`);
-    return docs.length;
-  } finally {
-    await client.close();
-  }
+  await PDFChunk.insertMany(docs);
+  console.log(`[Embedder] ✅ Stored ${docs.length} chunks`);
+  return docs.length;
 }
 
 // ─── MongoDB Atlas Vector Search index setup ──────────────────────────────────

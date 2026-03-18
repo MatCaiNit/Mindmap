@@ -18,6 +18,7 @@
     "multer": "^2.1.0",
     "openai": "^6.15.0",
     "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.4.624",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
