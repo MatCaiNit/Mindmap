@@ -73,6 +73,18 @@ export default function PDFUploadModal({ mindmap, yNodes, yEdges, onClose }) {
 
     let nodeCounter = 0
 
+    // Helper: build pdfSource từ chunk index
+    const buildSource = (sourceChunkIdx) => {
+      if (sourceChunkIdx === undefined || sourceChunkIdx === null) return null
+      const chunk = chunks[sourceChunkIdx]
+      if (!chunk) return null
+      return {
+        text:       chunk.text,
+        page:       chunk.pageNum ?? chunk.metadata?.pageEstimate ?? null,
+        chunkIndex: sourceChunkIdx,
+      }
+    }
+
     function processNode(node, parentId, level, side, x, y, colorIdx) {
       const nodeId = level === 0 ? 'root-node' : `pdf-node-${++nodeCounter}`
       const color  = level === 0 ? '#3b82f6' : COLOR_POOL[colorIdx % COLOR_POOL.length]
@@ -86,6 +98,7 @@ export default function PDFUploadModal({ mindmap, yNodes, yEdges, onClose }) {
         autoAlign: true,
         isRoot:    level === 0,
         color,
+        pdfSource: buildSource(node.sourceChunk),  
         ...(level === 0 ? {} : {
           fontSize:   level === 1 ? '15px' : '13px',
           fontWeight: level === 1 ? '600' : '500',
@@ -157,6 +170,7 @@ export default function PDFUploadModal({ mindmap, yNodes, yEdges, onClose }) {
       setPhase('applying')
       // data = { ok, mindmap: { root: {...} }, chunksUsed }
       const mindmapJson = data.mindmap ?? data
+      const chunks      = data.chunks ?? [] 
       setTimeout(() => {
         applyMindmapToYjs(mindmapJson)
         setPhase('done')

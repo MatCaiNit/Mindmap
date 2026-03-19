@@ -12,11 +12,13 @@ import {
   ArrowUturnRightIcon,
   EyeIcon,
   LockClosedIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline'
 import { useMutation } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
 import VersionHistoryModal from './VersionHistoryModal'
 import CollaboratorsTab from './CollaboratorsTab'
+import { exportMindmapAsJSON, downloadJSON } from '../../services/exportMindmap'
 
 export default function EditorToolbar({ 
   mindmap, 
@@ -24,6 +26,7 @@ export default function EditorToolbar({
   undoManager, 
   onBack,
   userRole = 'viewer',
+  ydoc
 }) {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showCollaborators, setShowCollaborators] = useState(false)
@@ -88,6 +91,13 @@ export default function EditorToolbar({
     if (undoManager && canRedo && isEditor) {
       undoManager.redo()
     }
+  }
+  const handleExportJSON = () => {
+    if (!ydoc) return
+    const yNodes = ydoc.getMap('nodes')
+    const yEdges = ydoc.getArray('edges')
+    const data = exportMindmapAsJSON(yNodes, yEdges, mindmap.title)
+    if (data) downloadJSON(data, mindmap.title)
   }
 
   return (
@@ -165,6 +175,15 @@ export default function EditorToolbar({
                 <span>Save Version</span>
               </button>
             )}
+
+            <button
+              onClick={handleExportJSON}
+              className="btn-secondary flex items-center space-x-2 text-sm"
+              title="Export JSON"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              <span>Export JSON</span>
+            </button>
 
             {/* Version History */}
             <button 

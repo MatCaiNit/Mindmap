@@ -48,7 +48,7 @@ export async function extractTextFromPDF(buffer) {
 
 // Hàm chunkText giữ nguyên như cũ, vì nó đã hoạt động hoàn hảo với mảng pagesData
 export function chunkText(pagesData, options = {}) {
-  const { chunkSize = 400, overlap = 80 } = options;
+  const { chunkSize = 250, overlap = 60 } = options;
   const chunks = [];
 
   for (const page of pagesData) {

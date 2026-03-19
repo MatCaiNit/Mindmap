@@ -1,0 +1,621 @@
+{
+  "title": "Project Name",
+  "exportedAt": "2026-03-19T11:49:50.917Z",
+  "root": {
+    "text": "Báo cáo thực tập: Phát triển game giáo dục hỗ trợ học tiếng Anh bằng Phaser",
+    "level": 0,
+    "color": "#3b82f6",
+    "side": null,
+    "children": [
+      {
+        "text": "Thông tin hành chính",
+        "level": 1,
+        "color": "#3b82f6",
+        "side": "right",
+        "children": [
+          {
+            "text": "Sinh viên: Nguyễn Mạnh Quỳnh (Mã: 22028241)",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Lớp: K67 - CQ - I - CS4",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Cán bộ hướng dẫn: Hồ Đắc Phương",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Đơn vị thực tập: Công ty TNHH Dịch vụ Phần mềm Sao Khuê",
+            "level": 2,
+            "color": "#ef4444",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Thời gian: Tháng 9 năm 2025",
+            "level": 2,
+            "color": "#8b5cf6",
+            "side": "right",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Mục tiêu bài toán",
+        "level": 1,
+        "color": "#10b981",
+        "side": "left",
+        "children": [
+          {
+            "text": "Số hóa bài tập/hình ảnh trong sách thành game tương tác",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Tăng khả năng tương tác, giúp học sinh nhớ lâu và nắm bài tốt hơn",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Phát triển các thể loại game mới và sửa lỗi logic",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "left",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Quy trình thực hiện",
+        "level": 1,
+        "color": "#f59e0b",
+        "side": "right",
+        "children": [
+          {
+            "text": "Tạo dữ liệu game (JSON)",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": [
+              {
+                "text": "Soạn cấu trúc JSON gọn, chứa dữ liệu cần thiết để tải nhanh",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Các trường chính: _id, game_type, title, resources (image/audio), data, unitId, timestamps",
+                "level": 3,
+                "color": "#10b981",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Đảm bảo đúng cấu trúc chuẩn để server đọc được",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "right",
+                "children": []
+              }
+            ]
+          },
+          {
+            "text": "Phát triển game với Phaser",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": [
+              {
+                "text": "Chạy server local để debug",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Lập trình các scene: preload, boot, home, play, finish",
+                "level": 3,
+                "color": "#10b981",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Xử lý logic: click, drag-drop, kiểm tra kết quả, hiệu ứng, âm thanh",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "right",
+                "children": []
+              }
+            ]
+          },
+          {
+            "text": "Đăng và kiểm thử",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "right",
+            "children": [
+              {
+                "text": "Đăng lên server test.hoclieu.vn",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Kiểm thử trên môi trường local và test",
+                "level": 3,
+                "color": "#10b981",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Sửa lỗi: không load được ảnh, sự kiện click, điểm số, logic sai",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "right",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Kiến trúc kỹ thuật",
+        "level": 1,
+        "color": "#ef4444",
+        "side": "left",
+        "children": [
+          {
+            "text": "Mô hình Client-Server",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": [
+              {
+                "text": "Client gửi request lấy dữ liệu game",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Server xử lý, truy vấn database và trả về JSON",
+                "level": 3,
+                "color": "#10b981",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Client render game dựa trên dữ liệu nhận được",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "left",
+                "children": []
+              }
+            ]
+          },
+          {
+            "text": "RESTful API",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": [
+              {
+                "text": "Giao tiếp qua HTTP (GET, POST, PUT)",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Sử dụng JSON để truyền tải thông tin",
+                "level": 3,
+                "color": "#10b981",
+                "side": "left",
+                "children": []
+              }
+            ]
+          },
+          {
+            "text": "Phaser Framework",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "left",
+            "children": [
+              {
+                "text": "Quản lý scene, animation, input events, audio",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Tiết kiệm thời gian lập trình UI, dễ bảo trì",
+                "level": 3,
+                "color": "#10b981",
+                "side": "left",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Kết quả đạt được",
+        "level": 1,
+        "color": "#8b5cf6",
+        "side": "right",
+        "children": [
+          {
+            "text": "Kỹ năng",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": [
+              {
+                "text": "Lập trình Phaser và xử lý dữ liệu",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Quản lý thời gian (chia task)",
+                "level": 3,
+                "color": "#10b981",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Làm việc nhóm và trao đổi với mentor",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Tìm kiếm và đọc tài liệu",
+                "level": 3,
+                "color": "#ef4444",
+                "side": "right",
+                "children": []
+              }
+            ]
+          },
+          {
+            "text": "Kiến thức",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": [
+              {
+                "text": "Phát triển game web (asset, logic, event handling)",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Mô hình Client-Server và RESTful API",
+                "level": 3,
+                "color": "#10b981",
+                "side": "right",
+                "children": []
+              },
+              {
+                "text": "Quy trình Agile (chia sprint, test liên tục, fix bug)",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "right",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Hướng phát triển",
+        "level": 1,
+        "color": "#ec4899",
+        "side": "left",
+        "children": [
+          {
+            "text": "Nâng cấp tính năng: thêm game sắp xếp câu, nghe-điền từ, ô chữ",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Tối ưu hiệu năng: giảm dung lượng, tối ưu code cho thiết bị yếu",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Cải thiện UX: thêm animation và âm thanh phản hồi",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Nghiên cứu công nghệ: TypeScript và các design pattern",
+            "level": 2,
+            "color": "#ef4444",
+            "side": "left",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "flatNodes": [
+    {
+      "text": "Báo cáo thực tập: Phát triển game giáo dục hỗ trợ học tiếng Anh bằng Phaser",
+      "level": 0,
+      "page": null
+    },
+    {
+      "text": "Thông tin hành chính",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Sinh viên: Nguyễn Mạnh Quỳnh (Mã: 22028241)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Lớp: K67 - CQ - I - CS4",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Cán bộ hướng dẫn: Hồ Đắc Phương",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Đơn vị thực tập: Công ty TNHH Dịch vụ Phần mềm Sao Khuê",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Thời gian: Tháng 9 năm 2025",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Mục tiêu bài toán",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Số hóa bài tập/hình ảnh trong sách thành game tương tác",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Tăng khả năng tương tác, giúp học sinh nhớ lâu và nắm bài tốt hơn",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Phát triển các thể loại game mới và sửa lỗi logic",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Quy trình thực hiện",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Tạo dữ liệu game (JSON)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Soạn cấu trúc JSON gọn, chứa dữ liệu cần thiết để tải nhanh",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Các trường chính: _id, game_type, title, resources (image/audio), data, unitId, timestamps",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Đảm bảo đúng cấu trúc chuẩn để server đọc được",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Phát triển game với Phaser",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Chạy server local để debug",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Lập trình các scene: preload, boot, home, play, finish",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Xử lý logic: click, drag-drop, kiểm tra kết quả, hiệu ứng, âm thanh",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Đăng và kiểm thử",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Đăng lên server test.hoclieu.vn",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Kiểm thử trên môi trường local và test",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Sửa lỗi: không load được ảnh, sự kiện click, điểm số, logic sai",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Kiến trúc kỹ thuật",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Mô hình Client-Server",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Client gửi request lấy dữ liệu game",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Server xử lý, truy vấn database và trả về JSON",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Client render game dựa trên dữ liệu nhận được",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "RESTful API",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Giao tiếp qua HTTP (GET, POST, PUT)",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Sử dụng JSON để truyền tải thông tin",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Phaser Framework",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Quản lý scene, animation, input events, audio",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Tiết kiệm thời gian lập trình UI, dễ bảo trì",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Kết quả đạt được",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Kỹ năng",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Lập trình Phaser và xử lý dữ liệu",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Quản lý thời gian (chia task)",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Làm việc nhóm và trao đổi với mentor",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Tìm kiếm và đọc tài liệu",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Kiến thức",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Phát triển game web (asset, logic, event handling)",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Mô hình Client-Server và RESTful API",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Quy trình Agile (chia sprint, test liên tục, fix bug)",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Hướng phát triển",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Nâng cấp tính năng: thêm game sắp xếp câu, nghe-điền từ, ô chữ",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Tối ưu hiệu năng: giảm dung lượng, tối ưu code cho thiết bị yếu",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Cải thiện UX: thêm animation và âm thanh phản hồi",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Nghiên cứu công nghệ: TypeScript và các design pattern",
+      "level": 2,
+      "page": null
+    }
+  ]
+}

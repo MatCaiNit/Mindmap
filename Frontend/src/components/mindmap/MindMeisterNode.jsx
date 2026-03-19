@@ -11,13 +11,14 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const inputRef = useRef(null)
   const isComposingRef = useRef(false)
   const editingSetByDataRef = useRef(false)
-  
+   const [showPdfSource, setShowPdfSource] = useState(false)
   const isReadOnly = data.isReadOnly || false
   const level = data.level || 0
   const side = data.side
   const isRoot = data.isRoot || id === 'root-node'
   const autoAlign = data.autoAlign !== false
   const isCreatingConnection = data.isCreatingConnection || false
+  const pdfSource = data.pdfSource || null   // ← MỚI
   
   // Theme & Formatting (from data or defaults)
   const color = data.color || '#3b82f6'
@@ -179,6 +180,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
       padding: data.padding || (level === 0 ? '16px 24px' : level === 1 ? '12px 20px' : '8px 16px'),
       letterSpacing: data.letterSpacing || 'normal',
       filter: data.filter || 'none',
+      position: 'relative',
     }
     
     if (level === 0) {
@@ -218,6 +220,33 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
         style={nodeStyle}
         onDoubleClick={handleDoubleClick}
       >
+        {/* ── PDF SOURCE ICON ── */}
+          {pdfSource && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowPdfSource(true) }}
+              title="Xem nguồn trong PDF"
+              style={{
+                position: 'absolute',
+                top: '4px',
+                right: '4px',
+                width: '18px',
+                height: '18px',
+                borderRadius: '4px',
+                background: 'rgba(255,255,255,0.25)',
+                border: '1px solid rgba(255,255,255,0.4)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                padding: 0,
+                lineHeight: 1,
+                fontSize: '10px',
+              }}
+            >
+              📄
+            </button>
+          )}
+
         {/* Anchors - only in connection mode */}
         {isCreatingConnection && showAnchors && (
           <>
@@ -342,7 +371,16 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
           {data.theme || 'default'}
         </div>
       )}
+      {/* PDF Source Modal */}
+      {showPdfSource && pdfSource && (
+        <PDFSourceModal
+          source={pdfSource}
+          nodeLabel={localLabel}
+          onClose={() => setShowPdfSource(false)}
+        />
+      )}
     </div>
+    
   )
 })
 

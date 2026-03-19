@@ -13,7 +13,7 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import { HybridRetriever } from "./retriever.js";
 
 const genai     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const GEN_MODEL = "gemini-3.1-flash";
+const GEN_MODEL = "gemini-3.1-flash-lite-preview";
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
 
 // ─── Safety settings (giữ nguyên cho technical docs) ──────────────────────────
@@ -30,10 +30,10 @@ async function withRetry(fn, retries = 3, baseDelay = 1000) {
     try {
       return await fn();
     } catch (err) {
+      console.error(`[AI] Attempt ${i + 1} failed:`, err?.message || err)  // ← THÊM
       const isRetryable = err?.status === 429 || err?.status === 503 || err?.code === "ECONNRESET";
       if (!isRetryable || i === retries) throw err;
       const delay = baseDelay * 2 ** i + Math.random() * 500;
-      console.warn(`[AI] Retry ${i + 1}/${retries} after ${Math.round(delay)}ms…`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -50,20 +50,23 @@ const MINDMAP_SCHEMA = {
       type: "object",
       properties: {
         text: { type: "string" },
+        sourceChunk: { type: "integer" },
         children: {
           type: "array",
           items: {
             type: "object",
             properties: {
+              sourceChunk: { type: "integer" },
               text: { type: "string" },
               children: {
                 type: "array",
                 items: {
                   type: "object",
                   properties: {
+                    sourceChunk: { type: "integer" },
                     text: { type: "string" },
                     children: { type: "array", items: { type: "object",
-                      properties: { text: { type: "string" } },
+                      properties: { text: { type: "string" } , sourceChunk: { type: "integer" }},
                       required: ["text"],
                     }},
                   },
@@ -124,7 +127,7 @@ export async function generateMindmap(text) {
     if (!json.root) throw new Error("Invalid mindmap structure from AI");
 
     console.log(`[AI] Generated mindmap: ${countNodes(json.root)} nodes`);
-    return { ok: true, mindmap: json };
+    return { ok: true, mindmap: json, chunks, chunksUsed: chunks.length };
   });
 }
 
@@ -145,7 +148,7 @@ Create a comprehensive mind map about: "${topic}"
 Use the following document chunks as your ONLY source of information.
 Each chunk is labeled [N] with its page number.
 
-Document Chunks:
+Document chunks (ONLY use these, cite by index number):
 ${ctxText}
 
 Create a highly granular and exhaustive mind map that:
@@ -164,8 +167,8 @@ export async function generateFromChunks(topic, chunks) {
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema:   MINDMAP_SCHEMA,
-      temperature:      0.4,  // lower = more faithful to source
-      maxOutputTokens:  4096,
+      temperature:      0.2,  // lower = more faithful to source
+      maxOutputTokens:  8192,
     },
   });
 
@@ -243,7 +246,7 @@ export async function generateFromPdf(mindmapId, pdfTitle) {
     const chunks = await retriever.retrieve(
       pdfTitle || "main topic overview",
       mindmapId,
-      { topK: 30, scoreThreshold: 0.1, useMMR: true, expand: false },
+      { topK: 20, scoreThreshold: 0.55, useMMR: true, expand: true },
     );
 
     if (chunks.length === 0) {

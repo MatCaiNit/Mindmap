@@ -173,6 +173,7 @@ export default function EditorPage() {
         undoManager={undoManagerRef.current}
         onBack={() => navigate('/dashboard')}
         userRole={userRole}
+        ydoc={ydoc}
       />
 
       <div className="flex-1 overflow-hidden">
