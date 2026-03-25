@@ -1,0 +1,423 @@
+{
+  "title": "Project Name",
+  "exportedAt": "2026-03-19T12:33:03.043Z",
+  "root": {
+    "text": "MindMapper: Ứng dụng tạo Mindmap cộng tác thời gian thực",
+    "level": 0,
+    "color": "#3b82f6",
+    "side": null,
+    "children": [
+      {
+        "text": "Thông tin dự án",
+        "level": 1,
+        "color": "#3b82f6",
+        "side": "right",
+        "children": [
+          {
+            "text": "Sinh viên: Nguyễn Mạnh Quỳnh (22028241)",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "GVHD: PGS. TS. Võ Đình Hiếu",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Đơn vị: ĐH Công nghệ - ĐHQG Hà Nội",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "right",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Nhu cầu và Động lực",
+        "level": 1,
+        "color": "#10b981",
+        "side": "left",
+        "children": [
+          {
+            "text": "Tầm quan trọng của tổ chức/trực quan hóa thông tin",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Hạn chế của các ứng dụng hiện có",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": [
+              {
+                "text": "Thiếu AI: Phải tạo thủ công từ đầu",
+                "level": 3,
+                "color": "#3b82f6",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Giao diện phức tạp: Miro/Figma quá nhiều tính năng thừa",
+                "level": 3,
+                "color": "#10b981",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Thiếu cộng tác: Không hỗ trợ làm việc nhóm",
+                "level": 3,
+                "color": "#f59e0b",
+                "side": "left",
+                "children": []
+              },
+              {
+                "text": "Thiếu Version Control: Khó theo dõi lịch sử thay đổi",
+                "level": 3,
+                "color": "#ef4444",
+                "side": "left",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "text": "Mục tiêu dự án",
+        "level": 1,
+        "color": "#f59e0b",
+        "side": "right",
+        "children": [
+          {
+            "text": "Website tạo/chỉnh sửa Mindmap chuyên biệt",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Tích hợp Realtime Collab",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Tích hợp AI (Gen Mindmap/Gợi ý)",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "right",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Kiến trúc hệ thống",
+        "level": 1,
+        "color": "#ef4444",
+        "side": "left",
+        "children": [
+          {
+            "text": "Presentation Layer (Frontend)",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Application Layer (Backend logic, Realtime-websocket, AI service)",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Data Layer (MongoDB)",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "left",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Công nghệ sử dụng",
+        "level": 1,
+        "color": "#8b5cf6",
+        "side": "right",
+        "children": [
+          {
+            "text": "Frontend: React, Yjs, Zustand, Tailwind CSS",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Backend: Nodejs, Express, MongoDB, Websocket, y-websocket",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "AI: OpenAI GPT-4o-mini",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Yjs (CRDT): Giải quyết xung đột, hiệu suất cao, tính năng Awareness",
+            "level": 2,
+            "color": "#ef4444",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "y-websocket: Ống dẫn dữ liệu, giao thức WebSocket, đồng bộ trạng thái, lưu trữ snapshot",
+            "level": 2,
+            "color": "#8b5cf6",
+            "side": "right",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Chức năng chính",
+        "level": 1,
+        "color": "#ec4899",
+        "side": "left",
+        "children": [
+          {
+            "text": "Vẽ và chỉnh sửa: Thêm/sửa/xóa nodes, tùy chỉnh style, connections, Auto-layout",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Cộng tác Realtime: Nhiều người chỉnh sửa, hiển thị users online, đồng bộ < 1 giây",
+            "level": 2,
+            "color": "#10b981",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "AI Assistant: Generate mindmap từ text, gợi ý node con",
+            "level": 2,
+            "color": "#f59e0b",
+            "side": "left",
+            "children": []
+          },
+          {
+            "text": "Version control: Manual save, xem lịch sử, restore version cũ",
+            "level": 2,
+            "color": "#ef4444",
+            "side": "left",
+            "children": []
+          }
+        ]
+      },
+      {
+        "text": "Kết quả và Hạn chế",
+        "level": 1,
+        "color": "#14b8a6",
+        "side": "right",
+        "children": [
+          {
+            "text": "Kết quả: Giải quyết cộng tác real-time, tích hợp AI, Version control, RBAC security",
+            "level": 2,
+            "color": "#3b82f6",
+            "side": "right",
+            "children": []
+          },
+          {
+            "text": "Hạn chế: Chưa thử nghiệm quy mô lớn, thiếu Google Auth, thiếu export file, thiếu chế độ offline, cần cải thiện animation",
+            "level": 2,
+            "color": "#10b981",
+            "side": "right",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "flatNodes": [
+    {
+      "text": "MindMapper: Ứng dụng tạo Mindmap cộng tác thời gian thực",
+      "level": 0,
+      "page": null
+    },
+    {
+      "text": "Thông tin dự án",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Sinh viên: Nguyễn Mạnh Quỳnh (22028241)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "GVHD: PGS. TS. Võ Đình Hiếu",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Đơn vị: ĐH Công nghệ - ĐHQG Hà Nội",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Nhu cầu và Động lực",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Tầm quan trọng của tổ chức/trực quan hóa thông tin",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Hạn chế của các ứng dụng hiện có",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Thiếu AI: Phải tạo thủ công từ đầu",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Giao diện phức tạp: Miro/Figma quá nhiều tính năng thừa",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Thiếu cộng tác: Không hỗ trợ làm việc nhóm",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Thiếu Version Control: Khó theo dõi lịch sử thay đổi",
+      "level": 3,
+      "page": null
+    },
+    {
+      "text": "Mục tiêu dự án",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Website tạo/chỉnh sửa Mindmap chuyên biệt",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Tích hợp Realtime Collab",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Tích hợp AI (Gen Mindmap/Gợi ý)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Kiến trúc hệ thống",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Presentation Layer (Frontend)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Application Layer (Backend logic, Realtime-websocket, AI service)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Data Layer (MongoDB)",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Công nghệ sử dụng",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Frontend: React, Yjs, Zustand, Tailwind CSS",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Backend: Nodejs, Express, MongoDB, Websocket, y-websocket",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "AI: OpenAI GPT-4o-mini",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Yjs (CRDT): Giải quyết xung đột, hiệu suất cao, tính năng Awareness",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "y-websocket: Ống dẫn dữ liệu, giao thức WebSocket, đồng bộ trạng thái, lưu trữ snapshot",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Chức năng chính",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Vẽ và chỉnh sửa: Thêm/sửa/xóa nodes, tùy chỉnh style, connections, Auto-layout",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Cộng tác Realtime: Nhiều người chỉnh sửa, hiển thị users online, đồng bộ < 1 giây",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "AI Assistant: Generate mindmap từ text, gợi ý node con",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Version control: Manual save, xem lịch sử, restore version cũ",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Kết quả và Hạn chế",
+      "level": 1,
+      "page": null
+    },
+    {
+      "text": "Kết quả: Giải quyết cộng tác real-time, tích hợp AI, Version control, RBAC security",
+      "level": 2,
+      "page": null
+    },
+    {
+      "text": "Hạn chế: Chưa thử nghiệm quy mô lớn, thiếu Google Auth, thiếu export file, thiếu chế độ offline, cần cải thiện animation",
+      "level": 2,
+      "page": null
+    }
+  ]
+}

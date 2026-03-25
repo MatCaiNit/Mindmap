@@ -120,11 +120,15 @@ export async function generateMindmap(text) {
     },
   });
 
+
+
   return withRetry(async () => {
     const result = await model.generateContent(GEN_PROMPT(text));
     const json   = JSON.parse(result.response.text());
 
     if (!json.root) throw new Error("Invalid mindmap structure from AI");
+
+    
 
     console.log(`[AI] Generated mindmap: ${countNodes(json.root)} nodes`);
     return { ok: true, mindmap: json, chunks, chunksUsed: chunks.length };
@@ -254,7 +258,7 @@ export async function generateFromPdf(mindmapId, pdfTitle) {
     }
 
     console.log(`[AI] Retrieved ${chunks.length} chunks for mindmap ${mindmapId}`);
-    return generateFromChunks(pdfTitle || "Document", chunks);
+    return generateFromChunks(pdfTitle || "Document", chunks, );
   } finally {
     await retriever.close();
   }

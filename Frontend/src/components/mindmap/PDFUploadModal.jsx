@@ -50,7 +50,7 @@ export default function PDFUploadModal({ mindmap, yNodes, yEdges, onClose }) {
   }
 
   // ── Write mindmap tree into Yjs ──────────────────────────────────────────
-  const applyMindmapToYjs = useCallback((mindmapJson) => {
+  const applyMindmapToYjs = useCallback((mindmapJson, chunks) => {
     // mindmapJson = { root: { text, children[] } }  (from ai.service.js)
     const root = mindmapJson.root ?? mindmapJson
 
@@ -172,8 +172,14 @@ export default function PDFUploadModal({ mindmap, yNodes, yEdges, onClose }) {
       const mindmapJson = data.mindmap ?? data
       const chunks      = data.chunks ?? [] 
       setTimeout(() => {
-        applyMindmapToYjs(mindmapJson)
-        setPhase('done')
+        try {
+          applyMindmapToYjs(mindmapJson, chunks)
+          setPhase('done')
+        } catch (err) {
+          console.error('applyMindmapToYjs failed:', err)
+          setPhase('error')
+          setErrorMsg(err.message)
+        }
       }, 300)
     },
     onError: (err) => {

@@ -20,7 +20,8 @@ export async function generateFromPdf(req, res) {
 
     // 4. Generate mindmap dùng RAG (Hãy gọi hàm generate từ ai.service.js của bạn)
     const result = await generateFromPdfService(mindmapId, filename || 'Document');
-
+    console.log('[Controller] response keys:', Object.keys(response.data))
+    
     res.json({
       ok: true,
       mindmap: result.mindmap,

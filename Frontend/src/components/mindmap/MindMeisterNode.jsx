@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { Handle, Position } from 'reactflow'
 import { PlusCircleIcon } from '@heroicons/react/24/solid'
+import PDFSourceModal from './PDFSourceModal'
 
 const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const [isEditing, setIsEditing] = useState(false)
