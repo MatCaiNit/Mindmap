@@ -1,29 +1,41 @@
-import express from 'express';
-import { generateFromPdf} from '../controllers/ai.controller.js';
-import multer from 'multer'
+// GenAI/routes/ai.routes.js
+// Changes: + POST /ai/generate-from-prompt route
 
-const router = express.Router();
+import express from 'express'
+import multer  from 'multer'
+import {
+  generateFromPdfController,
+  generateFromPromptController,
+  generateMindmapController,
+  suggestController,
+  deleteChunksController,
+} from '../controllers/ai.controller.js'
 
+const router = express.Router()
 
-const upload = multer({
+const pdfUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true)
-    } else {
-      cb(new Error('Only PDF files are allowed'), false)
-    }
-  }
+    file.mimetype === 'application/pdf'
+      ? cb(null, true)
+      : cb(new Error('Only PDF files allowed'))
+  },
 })
 
-// POST /ai/generate-mindmap
-//router.post('/generate-mindmap', generateMindmap);
+// Generate mindmap from PDF (RAG pipeline)
+router.post('/generate-from-pdf', pdfUpload.single('pdf'), generateFromPdfController)
 
-// POST /ai/suggest
-//router.post('/suggest', suggestNode);
+// NEW — Generate mindmap from text prompt (Gemini + optional search grounding)
+router.post('/generate-from-prompt', generateFromPromptController)
 
-router.post('/generate-from-pdf',         upload.single('pdf'), generateFromPdf)
-// router.delete('/chunks/:mindmapId',        deleteChunks)
-// router.get('/chunks/:mindmapId/node-source', getNodeSource)
-export default router;
+// Legacy alias — kept for backward compat
+router.post('/generate-mindmap', generateMindmapController)
+
+// AI node suggestions
+router.post('/suggest', suggestController)
+
+// Cleanup PDF chunks for a mindmap
+router.delete('/chunks/:mindmapId', deleteChunksController)
+
+export default router

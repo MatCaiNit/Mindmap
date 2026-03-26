@@ -419,3 +419,89 @@ export async function generateFromPdf(req, res) {
     })
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  NEW ① — POST /api/mindmaps/:id/generate-from-prompt
+// ══════════════════════════════════════════════════════════════════════════════
+/**
+ * Validate mindmap access → forward prompt to GenAI service
+ * Body: { prompt: string }
+ */
+export async function generateFromPrompt(req, res) {
+  try {
+    const { id } = req.params
+    const { prompt } = req.body
+ 
+    if (!prompt || !prompt.trim()) {
+      return res.status(400).json({ message: 'Missing prompt' })
+    }
+ 
+    const mm = await Mindmap.findById(id)
+    if (!mm) return res.status(404).json({ message: 'Mindmap not found' })
+ 
+    // Require write access (owner or editor)
+    const role = await checkMindmapAccess(req.user.id, id, 'write')
+    if (!role) return res.status(403).json({ message: 'Permission denied' })
+ 
+    const AI_URL = process.env.AI_GATEWAY_URL || 'http://localhost:4000'
+ 
+    const response = await axios.post(
+      `${AI_URL}/ai/generate-from-prompt`,
+      { prompt: prompt.trim() },
+      { timeout: 60000 }
+    )
+ 
+    await AuditLog.create({
+      mindmapId: mm._id,
+      userId: req.user.id,
+      action: 'generate-from-prompt',
+      detail: { promptPreview: prompt.trim().slice(0, 100) },
+    })
+ 
+    res.json(response.data)
+  } catch (err) {
+    console.error('generateFromPrompt error:', err.response?.data || err.message)
+    res.status(500).json({
+      message: err.response?.data?.error || err.message,
+    })
+  }
+}
+ 
+// ══════════════════════════════════════════════════════════════════════════════
+//  NEW ② — POST /api/mindmaps/:id/ai-suggest
+// ══════════════════════════════════════════════════════════════════════════════
+/**
+ * Validate mindmap access → forward suggest context to GenAI
+ * Body: { nodeId: string, context: { currentNode, parentNodes, siblings } }
+ */
+export async function aiSuggest(req, res) {
+  try {
+    const { id } = req.params
+    const { context } = req.body
+ 
+    if (!context) return res.status(400).json({ message: 'Missing context' })
+ 
+    const mm = await Mindmap.findById(id)
+    if (!mm) return res.status(404).json({ message: 'Mindmap not found' })
+ 
+    // Read access is enough for suggestions
+    const role = await checkMindmapAccess(req.user.id, id, 'read')
+    if (!role) return res.status(403).json({ message: 'Permission denied' })
+ 
+    const AI_URL = process.env.AI_GATEWAY_URL || 'http://localhost:4000'
+ 
+    const response = await axios.post(
+      `${AI_URL}/ai/suggest`,
+      { context },
+      { timeout: 20000 }
+    )
+ 
+    res.json(response.data)
+  } catch (err) {
+    console.error('aiSuggest error:', err.response?.data || err.message)
+    res.status(500).json({
+      message: err.response?.data?.error || err.message,
+    })
+  }
+}
+ 

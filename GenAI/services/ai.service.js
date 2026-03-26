@@ -1,275 +1,208 @@
-/**
- * GenAI/services/ai.service.js  –  UPGRADED
- * ==========================================
- * Cải tiến:
- *  1. Structured JSON output  – Gemini trả về JSON trực tiếp, không parse thủ công
- *  2. Chunked context         – inject top-k chunks vào prompt, có source citation
- *  3. Mindmap schema rõ ràng  – prompt chuẩn hơn, output nhất quán hơn
- *  4. Safety settings         – tắt filter không cần thiết cho technical content
- *  5. Retry với backoff       – tránh 429 rate-limit
- */
+// GenAI/services/ai.service.js
 
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { HybridRetriever } from "./retriever.js";
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import PDFChunk from '../models/PDFChunk.js'
+import { extractTextFromPDF, chunkText } from './pdfExtractor.js'
+import { embedText, embedBatch } from './embedder.js'
+import { cosineSimilarity } from '../utils/validate.js'
 
-const genai     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const GEN_MODEL = "gemini-3.1-flash-lite-preview";
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
-// ─── Safety settings (giữ nguyên cho technical docs) ──────────────────────────
-const SAFETY = [
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,       threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT,        threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-];
+const GENERATION_MODEL  = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+const TOP_K             = 5
+const MAX_CHUNK_IN_PROMPT = 380
 
-// ─── Retry helper ─────────────────────────────────────────────────────────────
-async function withRetry(fn, retries = 3, baseDelay = 1000) {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      console.error(`[AI] Attempt ${i + 1} failed:`, err?.message || err)  // ← THÊM
-      const isRetryable = err?.status === 429 || err?.status === 503 || err?.code === "ECONNRESET";
-      if (!isRetryable || i === retries) throw err;
-      const delay = baseDelay * 2 ** i + Math.random() * 500;
-      await new Promise(r => setTimeout(r, delay));
-    }
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+
+function parseJSON(raw) {
+  const clean = raw.replace(/```json|```/g, '').trim()
+  try { return JSON.parse(clean) } catch (_) {
+    const m = clean.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
+    if (m) return JSON.parse(m[0])
+    throw new Error('AI returned invalid JSON')
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  MINDMAP SCHEMA  (dùng cho structured output)
-// ═══════════════════════════════════════════════════════════════════════════════
+async function getModel(useSearch = false) {
+  if (useSearch && process.env.GEMINI_SEARCH_GROUNDING === 'true') {
+    return genAI.getGenerativeModel({
+      model: GENERATION_MODEL,
+      tools: [{ googleSearch: {} }],
+    })
+  }
+  return genAI.getGenerativeModel({ model: GENERATION_MODEL })
+}
 
-const MINDMAP_SCHEMA = {
-  type: "object",
-  properties: {
-    root: {
-      type: "object",
-      properties: {
-        text: { type: "string" },
-        sourceChunk: { type: "integer" },
-        children: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              sourceChunk: { type: "integer" },
-              text: { type: "string" },
-              children: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    sourceChunk: { type: "integer" },
-                    text: { type: "string" },
-                    children: { type: "array", items: { type: "object",
-                      properties: { text: { type: "string" } , sourceChunk: { type: "integer" }},
-                      required: ["text"],
-                    }},
-                  },
-                  required: ["text"],
-                },
-              },
-            },
-            required: ["text"],
-          },
-        },
-      },
-      required: ["text", "children"],
-    },
-  },
-  required: ["root"],
-};
+async function retrieveRelevant(mindmapId, query, k = TOP_K) {
+  const queryVec = await embedText(query, 'RETRIEVAL_QUERY')
+  const all = await PDFChunk.find({ mindmapId })
+    .select('text pageNum chunkIndex embedding')
+    .lean()
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  1.  GENERATE MINDMAP FROM TEXT
-// ═══════════════════════════════════════════════════════════════════════════════
+  const scored = all.map(c => ({
+    ...c,
+    score: cosineSimilarity(queryVec, c.embedding),
+  }))
+  scored.sort((a, b) => b.score - a.score)
 
-const GEN_PROMPT = (text) => `
-You are an expert at creating EXTREMELY DETAILED and COMPREHENSIVE mind maps.
+  const selected = []
+  for (const c of scored) {
+    if (selected.length >= k) break
+    const isDup = selected.some(
+      s => Math.abs(s.score - c.score) < 0.03 && s.pageNum === c.pageNum
+    )
+    if (!isDup) selected.push(c)
+  }
+  return selected
+}
 
-Given the following text, create a hierarchical mind map that:
-- Captures EVERY technical detail, feature, library, and requirement mentioned.
-- Does NOT summarize. Instead, extract information into a granular structure.
-- If a sentence lists multiple items (e.g., "Supports A, B, and C"), create 3 separate child nodes for A, B, and C.
-- Maintain a deep hierarchy (Root -> Category -> Sub-category -> Detail -> Specifics).
+// ── 1. GENERATE FROM PDF ─────────────────────────────────────────────────────
+
+export async function generateFromPdf(fileBuffer, filename, mindmapId) {
+  console.log(`\n[AI] generateFromPdf — ${filename} (${mindmapId})`)
+
+  // Step 1: extract text per page using pdfExtractor
+  const { pagesData } = await extractTextFromPDF(fileBuffer)
+  console.log(`[AI]  Extracted ${pagesData.length} pages`)
+
+  // Step 2: chunk using pdfExtractor's chunkText
+  const rawChunks = chunkText(pagesData, { chunkSize: 250, overlap: 60 })
+  console.log(`[AI]  ${rawChunks.length} chunks`)
+
+  // Step 3: embed in batches of 20
+  const BATCH = 20
+  const embeddings = []
+  for (let i = 0; i < rawChunks.length; i += BATCH) {
+    const batch = rawChunks.slice(i, i + BATCH).map(c => c.text)
+    const vecs = await embedBatch(batch, 'RETRIEVAL_DOCUMENT')
+    embeddings.push(...vecs)
+  }
+
+  // Step 4: persist chunks
+  await PDFChunk.deleteMany({ mindmapId })
+  const saved = await PDFChunk.insertMany(
+    rawChunks.map((c, idx) => ({
+      mindmapId,
+      text:       c.text,
+      pageNum:    c.pageNum,
+      chunkIndex: idx,
+      embedding:  embeddings[idx] || [],
+    }))
+  )
+  console.log(`[AI]  Stored ${saved.length} chunks`)
+
+  // Step 5: retrieve top-K relevant to overview
+  const overviewQuery = pagesData.slice(0, 2).map(p => p.text.slice(0, 200)).join(' ')
+  const topChunks = await retrieveRelevant(mindmapId, overviewQuery, TOP_K)
+
+  // Step 6: generate mindmap
+  const contextStr = topChunks
+    .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
+    .join('\n---\n')
+
+  const prompt = `You are a mindmap generator. Given these document excerpts (format: [chunkIdx|pageN] text):
+
+${contextStr}
+
+Create a hierarchical mindmap JSON for "${filename}". Rules:
+- 4-6 main branches, max 3 depth levels
+- Each node: "text" (concise), "sourceChunk" (integer chunk index above, or null)
+- Return ONLY valid JSON, no markdown
+
+JSON schema:
+{"root":{"text":"string","children":[{"text":"string","sourceChunk":0,"children":[{"text":"string","sourceChunk":null}]}]}}`
+
+  const model = await getModel(false)
+  const result = await model.generateContent(prompt)
+  const raw = result.response.text()
+  console.log(`[AI]  Raw response length: ${raw.length}`)
+
+  const mindmap = parseJSON(raw)
+
+  return {
+    ok: true,
+    mindmap,
+    chunks: saved.map(c => ({
+      _id:        c._id,
+      text:       c.text,
+      pageNum:    c.pageNum,
+      chunkIndex: c.chunkIndex,
+    })),
+    meta: { totalChunks: saved.length, usedChunks: topChunks.length },
+  }
+}
+
+// ── 2. GENERATE FROM PROMPT ──────────────────────────────────────────────────
+
+export async function generateFromPrompt(promptText) {
+  console.log(`\n[AI] generateFromPrompt — "${promptText.slice(0, 80)}..."`)
+
+  const model = await getModel(true)
+
+  const prompt = `Create a comprehensive mindmap about: "${promptText}"
 
 Rules:
-- Each node text: 2–6 words, precise technical terms.
-- No limit on the number of branches or sub-nodes – the more detailed, the better.
-- Cover 100% of the major and minor concepts in the text.
+- 4-6 main branches, 2-4 sub-nodes each, max 3 depth levels
+- For each node, if you know a reliable web source add it (title + URL)
+- Set "aiGenerated": true on every node
+- Return ONLY valid JSON, no markdown
 
-Text to analyze:
-"""
-${text.slice(0, 10000)} 
-"""
-`;
+JSON schema:
+{"root":{"text":"string","aiGenerated":true,"children":[{"text":"string","aiGenerated":true,"sources":[{"title":"string","url":"string"}],"children":[{"text":"string","aiGenerated":true,"sources":[]}]}]}}`
 
-export async function generateMindmap(text) {
-  const model = genai.getGenerativeModel({
-    model: GEN_MODEL,
-    safetySettings: SAFETY,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema:   MINDMAP_SCHEMA,
-      temperature:      0.3,
-      maxOutputTokens:  4096,
-    },
-  });
+  const result = await model.generateContent(prompt)
+  const raw = result.response.text()
 
+  let groundingSources = []
+  try {
+    const meta = result.response.candidates?.[0]?.groundingMetadata
+    if (meta?.groundingChunks) {
+      groundingSources = meta.groundingChunks
+        .filter(c => c.web?.uri)
+        .map(c => ({ title: c.web.title || c.web.uri, url: c.web.uri }))
+    }
+  } catch (_) { /* grounding not available */ }
 
+  const mindmap = parseJSON(raw)
 
-  return withRetry(async () => {
-    const result = await model.generateContent(GEN_PROMPT(text));
-    const json   = JSON.parse(result.response.text());
+  if (groundingSources.length > 0) {
+    attachGroundingSources(mindmap.root, groundingSources)
+  }
 
-    if (!json.root) throw new Error("Invalid mindmap structure from AI");
-
-    
-
-    console.log(`[AI] Generated mindmap: ${countNodes(json.root)} nodes`);
-    return { ok: true, mindmap: json, chunks, chunksUsed: chunks.length };
-  });
+  return { ok: true, mindmap, groundingSources }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  2.  RAG-BASED MINDMAP FROM PDF CHUNKS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const RAG_PROMPT = (topic, chunks) => {
-  const ctxText = chunks
-    .map((c, i) => `[${i + 1}] (p.${c.pageNum ?? "?"}) ${c.text}`)
-    .join("\n");
-
-  return `
-You are an expert at creating mind maps from document excerpts.
-
-Create a comprehensive mind map about: "${topic}"
-
-Use the following document chunks as your ONLY source of information.
-Each chunk is labeled [N] with its page number.
-
-Document chunks (ONLY use these, cite by index number):
-${ctxText}
-
-Create a highly granular and exhaustive mind map that:
-- Extracts EVERY specific piece of information found in the chunks.
-- For every technical component or step mentioned, create a dedicated node.
-- Deeply nest information: If a chunk describes a process, map out every step as a sub-node.
-- Use as many branches as necessary to represent the full scope of the provided data.
-- Ensure no detail from the "Document Chunks" is omitted.
-`;
-};
-
-export async function generateFromChunks(topic, chunks) {
-  const model = genai.getGenerativeModel({
-    model: GEN_MODEL,
-    safetySettings: SAFETY,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema:   MINDMAP_SCHEMA,
-      temperature:      0.2,  // lower = more faithful to source
-      maxOutputTokens:  8192,
-    },
-  });
-
-  return withRetry(async () => {
-    const result = await model.generateContent(RAG_PROMPT(topic, chunks));
-    const json   = JSON.parse(result.response.text());
-    if (!json.root) throw new Error("Invalid mindmap structure");
-    return { ok: true, mindmap: json, chunksUsed: chunks.length };
-  });
+function attachGroundingSources(node, sources) {
+  if (!node) return
+  if (!node.sources?.length && sources.length) node.sources = sources.slice(0, 2)
+  ;(node.children || []).forEach(c => attachGroundingSources(c, sources))
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  3.  AI SUGGEST  (gợi ý node con cho node đang chọn)
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── 3. SUGGEST NODES ─────────────────────────────────────────────────────────
 
 export async function suggestNodes(context) {
-  const SUGGEST_SCHEMA = {
-    type: "object",
-    properties: {
-      suggestions: {
-        type: "array",
-        maxItems: 5,
-        items: {
-          type: "object",
-          properties: {
-            text:   { type: "string" },
-            reason: { type: "string" },
-          },
-          required: ["text"],
-        },
-      },
-    },
-    required: ["suggestions"],
-  };
+  const { currentNode, parentNodes = [], siblings = [] } = context
+  console.log(`[AI] suggestNodes — "${currentNode}"`)
 
-  const prompt = `
-You are helping expand a mind map node.
+  const model = await getModel(false)
 
-Current node: "${context.currentNode}"
-Parent chain: ${context.parentNodes?.join(" → ") || "root"}
-Sibling nodes: ${context.siblings?.join(", ") || "none yet"}
+  const prompt = `Suggest 5 child mindmap nodes for: "${currentNode}"
+Parent chain: ${parentNodes.slice(-3).join(' > ') || 'root'}
+Existing siblings: ${siblings.slice(0, 3).join(', ') || 'none'}
 
-Suggest 4–5 child nodes that:
-- Are directly relevant to the current node
-- Don't duplicate existing siblings
-- Are concise (2–5 words each)
-- Represent distinct sub-topics or aspects
-`;
+Return ONLY a JSON array of 5 objects:
+[{"text":"concise label"},...]
+No explanation, no markdown.`
 
-  const model = genai.getGenerativeModel({
-    model: GEN_MODEL,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema:   SUGGEST_SCHEMA,
-      temperature:      0.7,
-    },
-  });
-
-  return withRetry(async () => {
-    const result = await model.generateContent(prompt);
-    const json   = JSON.parse(result.response.text());
-    return { ok: true, suggestions: json.suggestions || [] };
-  });
+  const result = await model.generateContent(prompt)
+  const raw = result.response.text()
+  const arr = parseJSON(raw)
+  return Array.isArray(arr) ? arr : (arr.suggestions || [])
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  4.  FULL RAG PIPELINE  (PDF → chunks → retrieve → mindmap)
-//      Dùng trong controller khi user upload PDF
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── 4. DELETE CHUNKS ─────────────────────────────────────────────────────────
 
-export async function generateFromPdf(mindmapId, pdfTitle) {
-  const retriever = new HybridRetriever(MONGO_URI);
-  try {
-    // Lấy all chunks của mindmap này làm context tổng thể
-    const chunks = await retriever.retrieve(
-      pdfTitle || "main topic overview",
-      mindmapId,
-      { topK: 20, scoreThreshold: 0.55, useMMR: true, expand: true },
-    );
-
-    if (chunks.length === 0) {
-      throw new Error(`No chunks found for mindmap ${mindmapId}`);
-    }
-
-    console.log(`[AI] Retrieved ${chunks.length} chunks for mindmap ${mindmapId}`);
-    return generateFromChunks(pdfTitle || "Document", chunks, );
-  } finally {
-    await retriever.close();
-  }
-}
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-function countNodes(node, count = 0) {
-  count++;
-  for (const child of node.children || []) {
-    count = countNodes(child, count);
-  }
-  return count;
+export async function deleteChunks(mindmapId) {
+  const res = await PDFChunk.deleteMany({ mindmapId })
+  return res.deletedCount
 }

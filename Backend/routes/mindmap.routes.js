@@ -10,7 +10,9 @@ import {
   saveUserSnapshot, 
   restoreSnapshot, 
   verifyMindmapAccess,
-  generateFromPdf
+  generateFromPdf,
+  generateFromPrompt,
+  aiSuggest
 } from '../controllers/mindmap.controller.js';
 import { 
   getVersion,
@@ -49,6 +51,8 @@ router.post('/:id/restore', requireMindmapAccess('write'), restoreSnapshot);
 
 // Basic CRUD
 router.post('/:id/generate-from-pdf', pdfUpload.single('pdf'), generateFromPdf);
+router.post('/:id/generate-from-prompt', generateFromPrompt)
+router.post('/:id/ai-suggest',           aiSuggest) 
 
 router.post('/', createMindmap);                // POST /api/mindmaps
 router.get('/', listMyMindmaps);                // GET  /api/mindmaps

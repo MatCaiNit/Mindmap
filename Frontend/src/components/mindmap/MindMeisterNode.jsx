@@ -1,75 +1,66 @@
-// Frontend/src/components/mindmap/MindMeisterNode.jsx - WITH THEME SUPPORT
+// Frontend/src/components/mindmap/MindMeisterNode.jsx
 
 import { useState, useCallback, useEffect, useRef, memo } from 'react'
 import { Handle, Position } from 'reactflow'
 import { PlusCircleIcon } from '@heroicons/react/24/solid'
 import PDFSourceModal from './PDFSourceModal'
+import WebSourceModal from './WebSourceModal'
 
 const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [localLabel, setLocalLabel] = useState(data.label)
   const [showAnchors, setShowAnchors] = useState(false)
+  const [showPdfSource, setShowPdfSource] = useState(false)
+  const [showAiSource, setShowAiSource] = useState(false)
   const inputRef = useRef(null)
   const isComposingRef = useRef(false)
   const editingSetByDataRef = useRef(false)
-   const [showPdfSource, setShowPdfSource] = useState(false)
+
   const isReadOnly = data.isReadOnly || false
   const level = data.level || 0
   const side = data.side
   const isRoot = data.isRoot || id === 'root-node'
   const autoAlign = data.autoAlign !== false
   const isCreatingConnection = data.isCreatingConnection || false
-  const pdfSource = data.pdfSource || null   // ← MỚI
-  
-  // Theme & Formatting (from data or defaults)
-  const color = data.color || '#3b82f6'
-  const textColor = data.textColor || (level === 0 ? '#1f2937' : '#ffffff')
-  const fontSize = data.fontSize || (level === 0 ? '20px' : level === 1 ? '16px' : '14px')
-  const fontWeight = data.fontWeight || (level === 0 ? 'bold' : level === 1 ? '600' : '500')
-  const borderRadius = data.borderRadius || (level === 0 ? '12px' : level === 1 ? '20px' : '16px')
-  const fontFamily = data.fontFamily || 'inherit'
-  const transform = data.transform || 'none'
-  
-  const bold = data.bold || (level === 0)
-  const italic = data.italic || false
-  const underline = data.underline || false
+  const pdfSource = data.pdfSource || null
+  const aiSource  = data.aiSource  || null
 
-  // Sync label from data
-  useEffect(() => {
-    setLocalLabel(data.label)
-  }, [data.label])
+  // Styling props
+  const color        = data.color        || '#3b82f6'
+  const textColor    = data.textColor    || (level === 0 ? '#1f2937' : '#ffffff')
+  const fontSize     = data.fontSize     || (level === 0 ? '20px' : level === 1 ? '16px' : '14px')
+  const fontWeight   = data.fontWeight   || (level === 0 ? 'bold'  : level === 1 ? '600'  : '500')
+  const borderRadius = data.borderRadius || (level === 0 ? '12px'  : level === 1 ? '20px' : '16px')
+  const fontFamily   = data.fontFamily   || 'inherit'
+  const transform    = data.transform    || 'none'
+  const bold         = data.bold         || (level === 0)
+  const italic       = data.italic       || false
+  const underline    = data.underline    || false
 
-  // Auto-focus when node is created
+  // Sync label
+  useEffect(() => { setLocalLabel(data.label) }, [data.label])
+
+  // Auto-focus when freshly created
   useEffect(() => {
     if (data.editing && !isReadOnly && !editingSetByDataRef.current) {
       editingSetByDataRef.current = true
-      
       setTimeout(() => {
         setIsEditing(true)
-        
-        if (data.onEditingChange) {
-          data.onEditingChange(true)
-        }
-        
+        if (data.onEditingChange) data.onEditingChange(true)
         setTimeout(() => {
           const node = data.yNodes.get(id)
-          if (node && node.editing) {
-            data.yNodes.set(id, { ...node, editing: false })
-          }
+          if (node && node.editing) data.yNodes.set(id, { ...node, editing: false })
         }, 100)
       }, 50)
     }
   }, [data.editing, id, data.yNodes, isReadOnly, data.onEditingChange])
 
-  // Focus input when entering edit mode
+  // Focus input
   useEffect(() => {
     if (isEditing && inputRef.current) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          if (inputRef.current) {
-            inputRef.current.focus()
-            inputRef.current.select()
-          }
+          if (inputRef.current) { inputRef.current.focus(); inputRef.current.select() }
         })
       })
     }
@@ -78,214 +69,166 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
   const handleDoubleClick = () => {
     if (isReadOnly) return
     setIsEditing(true)
-    
-    if (data.onEditingChange) {
-      data.onEditingChange(true)
-    }
+    if (data.onEditingChange) data.onEditingChange(true)
   }
 
   const handleBlur = useCallback(() => {
     if (isComposingRef.current) return
-    
     setIsEditing(false)
     editingSetByDataRef.current = false
-    
-    if (data.onEditingChange) {
-      data.onEditingChange(false)
-    }
-    
+    if (data.onEditingChange) data.onEditingChange(false)
     if (data.yNodes) {
       const node = data.yNodes.get(id)
       if (node) {
-        const isRoot = id === 'root-node' || node.isRoot
-        const finalLabel = localLabel.trim() 
-                          ? localLabel.trim() 
-                          : (isRoot ? node.label : 'New Node')
-        
-        data.yNodes.set(id, {
-          ...node,
-          label: finalLabel,
-        })
+        const finalLabel = localLabel.trim()
+          ? localLabel.trim()
+          : (isRoot ? node.label : 'New Node')
+        data.yNodes.set(id, { ...node, label: finalLabel })
       }
     }
-  }, [id, localLabel, data])
+  }, [id, localLabel, data, isRoot])
 
-  const handleCompositionStart = () => {
-    isComposingRef.current = true
-  }
-
-  const handleCompositionEnd = (e) => {
-    isComposingRef.current = false
-    setLocalLabel(e.target.value)
-  }
+  const handleCompositionStart = () => { isComposingRef.current = true }
+  const handleCompositionEnd   = (e) => { isComposingRef.current = false; setLocalLabel(e.target.value) }
 
   const handleKeyDown = (e) => {
-    if (isComposingRef.current) {
-      return
-    }
-    
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleBlur()
-    }
+    if (isComposingRef.current) return
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleBlur() }
     if (e.key === 'Escape') {
       setLocalLabel(data.label)
       setIsEditing(false)
       editingSetByDataRef.current = false
-      if (data.onEditingChange) {
-        data.onEditingChange(false)
-      }
+      if (data.onEditingChange) data.onEditingChange(false)
     }
-    if (e.key === 'Tab') {
-      e.stopPropagation()
-    }
+    if (e.key === 'Tab') e.stopPropagation()
   }
 
-  const handleMouseEnter = () => {
-    if (isCreatingConnection) {
-      setShowAnchors(true)
-    }
-  }
-
-  const handleMouseLeave = () => {
-    setShowAnchors(false)
-  }
+  const handleMouseEnter = () => { if (isCreatingConnection) setShowAnchors(true) }
+  const handleMouseLeave = () => { setShowAnchors(false) }
 
   const handleAnchorClick = (anchorId) => (e) => {
     e.stopPropagation()
-    if (data.onAnchorClick) {
-      data.onAnchorClick(id, anchorId, e)
-    }
+    if (data.onAnchorClick) data.onAnchorClick(id, anchorId, e)
   }
 
-  // 🔥 GET NODE STYLE - WITH THEME SUPPORT
+  // ── Node style ────────────────────────────────────────────────────────────
   const getNodeStyle = () => {
-    // Base style with theme properties from node data
-    const baseStyle = {
+    const style = {
       backgroundColor: data.background || color,
-      background: data.background || color, // Support gradients
-      color: textColor,
+      background:      data.background || color,
+      color:           textColor,
       fontSize,
-      fontWeight: bold ? 'bold' : fontWeight,
-      fontStyle: italic ? 'italic' : 'normal',
-      textDecoration: underline ? 'underline' : 'none',
+      fontWeight:      bold ? 'bold' : fontWeight,
+      fontStyle:       italic ? 'italic' : 'normal',
+      textDecoration:  underline ? 'underline' : 'none',
       fontFamily,
       borderRadius,
       transform,
-      transition: 'all 0.2s ease',
-      cursor: 'pointer',
-      
-      // 🎨 Apply theme-specific properties from node data
-      border: data.border || 'none',
-      boxShadow: data.boxShadow || (level === 0 ? '0 4px 12px rgba(0,0,0,0.1)' : '0 2px 8px rgba(0,0,0,0.08)'),
-      padding: data.padding || (level === 0 ? '16px 24px' : level === 1 ? '12px 20px' : '8px 16px'),
-      letterSpacing: data.letterSpacing || 'normal',
-      filter: data.filter || 'none',
-      position: 'relative',
+      transition:      'all 0.2s ease',
+      cursor:          'pointer',
+      border:          data.border    || 'none',
+      boxShadow:       data.boxShadow || (level === 0 ? '0 4px 12px rgba(0,0,0,0.1)' : '0 2px 8px rgba(0,0,0,0.08)'),
+      padding:         data.padding   || (level === 0 ? '16px 24px' : level === 1 ? '12px 20px' : '8px 16px'),
+      letterSpacing:   data.letterSpacing || 'normal',
+      filter:          data.filter    || 'none',
+      position:        'relative',
+      minWidth:        level === 0 ? '180px' : level === 1 ? '140px' : '100px',
     }
-    
-    if (level === 0) {
-      return {
-        ...baseStyle,
-        minWidth: '180px',
-      }
-    } else if (level === 1) {
-      return {
-        ...baseStyle,
-        minWidth: '140px',
-      }
-    } else {
-      return {
-        ...baseStyle,
-        minWidth: '100px',
-      }
+
+    // AI-generated nodes: subtle purple left accent
+    if (aiSource) {
+      style.borderLeft = '3px solid rgba(139,92,246,0.6)'
     }
+
+    return style
   }
 
-  const nodeStyle = getNodeStyle()
-  const addButtonPosition = side === 'left' ? 'left' : 'right'
+  const nodeStyle            = getNodeStyle()
+  const addButtonPosition    = side === 'left' ? 'left' : 'right'
+  const hasBothSourceTypes   = pdfSource && aiSource
 
   return (
-    <div 
+    <div
       className="relative group"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       <div
-        className={`
-          cursor-pointer
-          ${selected ? 'ring-4 ring-primary-400 ring-opacity-50' : ''}
-          ${!isReadOnly ? 'hover:shadow-lg hover:scale-105' : ''}
-          ${dragging ? 'opacity-50' : ''}
-        `}
+        className={[
+          'cursor-pointer',
+          selected  ? 'ring-4 ring-primary-400 ring-opacity-50' : '',
+          !isReadOnly ? 'hover:shadow-lg hover:scale-105' : '',
+          dragging  ? 'opacity-50' : '',
+        ].join(' ')}
         style={nodeStyle}
         onDoubleClick={handleDoubleClick}
       >
-        {/* ── PDF SOURCE ICON ── */}
-          {pdfSource && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowPdfSource(true) }}
-              title="Xem nguồn trong PDF"
-              style={{
-                position: 'absolute',
-                top: '4px',
-                right: '4px',
-                width: '18px',
-                height: '18px',
-                borderRadius: '4px',
-                background: 'rgba(255,255,255,0.25)',
-                border: '1px solid rgba(255,255,255,0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                padding: 0,
-                lineHeight: 1,
-                fontSize: '10px',
-              }}
-            >
-              📄
-            </button>
-          )}
+        {/* ── PDF source icon ────────────────────────────────────────────── */}
+        {pdfSource && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowPdfSource(true) }}
+            title="Xem nguồn trong PDF"
+            style={{
+              position: 'absolute',
+              top: '4px',
+              right: hasBothSourceTypes ? '26px' : '4px',
+              width: '18px', height: '18px',
+              borderRadius: '4px',
+              background: 'rgba(255,255,255,0.25)',
+              border: '1px solid rgba(255,255,255,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', padding: 0, fontSize: '10px',
+            }}
+          >
+            📄
+          </button>
+        )}
 
-        {/* Anchors - only in connection mode */}
+        {/* ── AI source icon ─────────────────────────────────────────────── */}
+        {aiSource && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAiSource(true) }}
+            title="Xem nguồn AI"
+            style={{
+              position: 'absolute',
+              top: '4px', right: '4px',
+              width: '18px', height: '18px',
+              borderRadius: '4px',
+              background: 'rgba(139,92,246,0.25)',
+              border: '1px solid rgba(139,92,246,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', padding: 0, fontSize: '10px',
+            }}
+          >
+            ✨
+          </button>
+        )}
+
+        {/* ── Anchors (connection mode) ───────────────────────────────────── */}
         {isCreatingConnection && showAnchors && (
           <>
-            <div
-              onClick={handleAnchorClick('top')}
-              className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
-              title="Top"
-            >
-              +
-            </div>
-            
-            <div
-              onClick={handleAnchorClick('right')}
-              className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
-              title="Right"
-            >
-              +
-            </div>
-            
-            <div
-              onClick={handleAnchorClick('bottom')}
-              className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
-              title="Bottom"
-            >
-              +
-            </div>
-            
-            <div
-              onClick={handleAnchorClick('left')}
-              className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10 flex items-center justify-center text-white text-xs font-bold"
-              title="Left"
-            >
-              +
-            </div>
+            {['top', 'right', 'bottom', 'left'].map(pos => (
+              <div
+                key={pos}
+                onClick={handleAnchorClick(pos)}
+                title={pos}
+                className={[
+                  'absolute w-6 h-6 bg-blue-500 border-2 border-white rounded-full',
+                  'cursor-pointer hover:bg-blue-600 hover:scale-110 transition z-10',
+                  'flex items-center justify-center text-white text-xs font-bold',
+                  pos === 'top'    ? '-top-3 left-1/2 -translate-x-1/2'    : '',
+                  pos === 'right'  ? '-right-3 top-1/2 -translate-y-1/2'   : '',
+                  pos === 'bottom' ? '-bottom-3 left-1/2 -translate-x-1/2' : '',
+                  pos === 'left'   ? '-left-3 top-1/2 -translate-y-1/2'    : '',
+                ].join(' ')}
+              >
+                +
+              </div>
+            ))}
           </>
         )}
 
-        {/* Content */}
+        {/* ── Content ────────────────────────────────────────────────────── */}
         {isEditing && !isReadOnly ? (
           <input
             ref={inputRef}
@@ -296,66 +239,60 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
             onKeyDown={handleKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            className="w-full font-inherit outline-none bg-transparent text-center"
-            style={{ 
-              color: nodeStyle.color,
-              fontSize: nodeStyle.fontSize,
-              fontWeight: nodeStyle.fontWeight,
-              fontStyle: nodeStyle.fontStyle,
+            className="w-full outline-none bg-transparent text-center"
+            style={{
+              color:          nodeStyle.color,
+              fontSize:       nodeStyle.fontSize,
+              fontWeight:     nodeStyle.fontWeight,
+              fontStyle:      nodeStyle.fontStyle,
               textDecoration: nodeStyle.textDecoration,
-              fontFamily: nodeStyle.fontFamily
+              fontFamily:     nodeStyle.fontFamily,
             }}
           />
         ) : (
-          <div 
+          <div
             className="text-center whitespace-pre-wrap break-words"
             style={{
-              fontSize: nodeStyle.fontSize,
-              fontWeight: nodeStyle.fontWeight,
-              fontStyle: nodeStyle.fontStyle,
+              fontSize:       nodeStyle.fontSize,
+              fontWeight:     nodeStyle.fontWeight,
+              fontStyle:      nodeStyle.fontStyle,
               textDecoration: nodeStyle.textDecoration,
-              fontFamily: nodeStyle.fontFamily
+              fontFamily:     nodeStyle.fontFamily,
             }}
           >
             {localLabel || 'Empty'}
           </div>
         )}
 
-        {/* React Flow Handles - Hidden */}
-        <Handle type="target" position={Position.Top} className="!opacity-0 !w-1 !h-1" id="target-top" />
-        <Handle type="target" position={Position.Right} className="!opacity-0 !w-1 !h-1" id="target-right" />
-        <Handle type="target" position={Position.Bottom} className="!opacity-0 !w-1 !h-1" id="target-bottom" />
-        <Handle type="target" position={Position.Left} className="!opacity-0 !w-1 !h-1" id="target-left" />
-        <Handle type="source" position={Position.Top} className="!opacity-0 !w-1 !h-1" id="source-top" />
-        <Handle type="source" position={Position.Right} className="!opacity-0 !w-1 !h-1" id="source-right" />
-        <Handle type="source" position={Position.Bottom} className="!opacity-0 !w-1 !h-1" id="source-bottom" />
-        <Handle type="source" position={Position.Left} className="!opacity-0 !w-1 !h-1" id="source-left" />
+        {/* ── React Flow Handles ─────────────────────────────────────────── */}
+        <Handle type="target" position={Position.Top}    id="target-top"    className="!opacity-0 !w-1 !h-1" />
+        <Handle type="target" position={Position.Right}  id="target-right"  className="!opacity-0 !w-1 !h-1" />
+        <Handle type="target" position={Position.Bottom} id="target-bottom" className="!opacity-0 !w-1 !h-1" />
+        <Handle type="target" position={Position.Left}   id="target-left"   className="!opacity-0 !w-1 !h-1" />
+        <Handle type="source" position={Position.Top}    id="source-top"    className="!opacity-0 !w-1 !h-1" />
+        <Handle type="source" position={Position.Right}  id="source-right"  className="!opacity-0 !w-1 !h-1" />
+        <Handle type="source" position={Position.Bottom} id="source-bottom" className="!opacity-0 !w-1 !h-1" />
+        <Handle type="source" position={Position.Left}   id="source-left"   className="!opacity-0 !w-1 !h-1" />
       </div>
 
-      {/* Add Button */}
+      {/* ── Add child button ───────────────────────────────────────────────── */}
       {!isReadOnly && !isCreatingConnection && (
         <button
-          onClick={(e) => {
-            e.stopPropagation()
-            data.onAddChild?.(id)
-          }}
+          onClick={(e) => { e.stopPropagation(); data.onAddChild?.(id) }}
           className="absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110"
-          style={{ 
+          style={{
             [addButtonPosition === 'left' ? 'left' : 'right']: '-16px',
-            zIndex: 10 
+            zIndex: 10,
           }}
           title="Add child node (Tab)"
         >
-          <PlusCircleIcon 
-            className="w-8 h-8 drop-shadow-lg"
-            style={{ color: color }}
-          />
+          <PlusCircleIcon className="w-8 h-8 drop-shadow-lg" style={{ color }} />
         </button>
       )}
 
-      {/* Lock indicator */}
+      {/* ── Unlock indicator ──────────────────────────────────────────────── */}
       {!isRoot && !autoAlign && !dragging && (
-        <div 
+        <div
           className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center text-xs shadow-lg"
           title="Unlocked (draggable)"
         >
@@ -363,16 +300,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
         </div>
       )}
 
-      {/* Theme indicator (only show in dev mode) */}
-      {data.themeMetadata && process.env.NODE_ENV === 'development' && (
-        <div 
-          className="absolute -bottom-2 -left-2 text-[8px] bg-black text-white px-1 rounded opacity-50"
-          title={`Theme: ${data.themeMetadata.themeName}`}
-        >
-          {data.theme || 'default'}
-        </div>
-      )}
-      {/* PDF Source Modal */}
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
       {showPdfSource && pdfSource && (
         <PDFSourceModal
           source={pdfSource}
@@ -380,11 +308,16 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
           onClose={() => setShowPdfSource(false)}
         />
       )}
+      {showAiSource && aiSource && (
+        <WebSourceModal
+          aiSource={aiSource}
+          nodeLabel={localLabel}
+          onClose={() => setShowAiSource(false)}
+        />
+      )}
     </div>
-    
   )
 })
 
 MindMeisterNode.displayName = 'MindMeisterNode'
-
 export default MindMeisterNode

@@ -607,6 +607,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
           onToggleAutoAlign={() => handleToggleAutoAlign(selectedNode.id)}
           onStartConnection={handleStartConn}
           isCreatingConnection={isCreatingConnection}
+          mindmapId={mindmap._id}
         />
       )}
 
