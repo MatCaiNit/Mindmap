@@ -8,6 +8,7 @@ import { createYjsProvider }            from '../../lib/yjs'
 import { createUndoManager }            from '../../lib/undoManager'
 import MindMeisterCanvas                from '../../components/mindmap/MindMeisterCanvas'
 import EditorToolbar                    from '../../components/mindmap/EditorToolbar'
+import PDFViewerPanel                   from '../../components/mindmap/PDFViewerPanel'
 
 export default function EditorPage() {
   const { id }   = useParams()
@@ -186,6 +187,8 @@ export default function EditorPage() {
           />
         </ReactFlowProvider>
       </div>
+      {/* PDF viewer side panel — mounts/unmounts based on global store state */}
+      <PDFViewerPanel />
     </div>
   )
 }

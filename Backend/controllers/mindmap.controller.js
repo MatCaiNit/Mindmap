@@ -10,6 +10,18 @@ import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import FormData from 'form-data'
 
+const pdfCache = new Map()
+const PDF_CACHE_TTL = 4 * 60 * 60 * 1000   // 4 hours
+ 
+setInterval(() => {
+  const now = Date.now()
+  let pruned = 0
+  pdfCache.forEach((val, key) => {
+    if (now > val.expiry) { pdfCache.delete(key); pruned++ }
+  })
+  if (pruned) console.log(`🗑  PDF cache: pruned ${pruned} expired entries`)
+}, 30 * 60 * 1000)
+
 export async function createMindmap(req, res) {
   try {
     const { title, description, template } = req.body;
@@ -417,6 +429,38 @@ export async function generateFromPdf(req, res) {
     res.status(500).json({
       message: err.response?.data?.error || err.message
     })
+  }
+}
+
+ 
+export async function servePdfFile(req, res) {
+  try {
+    const { id } = req.params
+ 
+    const role = await checkMindmapAccess(req.user.id, id, 'read')
+    if (!role) return res.status(403).json({ message: 'Permission denied' })
+ 
+    const cached = pdfCache.get(id)
+    if (!cached) {
+      return res.status(404).json({
+        message: 'PDF not cached. Please re-generate the mindmap from PDF to view the source document.'
+      })
+    }
+    if (Date.now() > cached.expiry) {
+      pdfCache.delete(id)
+      return res.status(410).json({
+        message: 'PDF cache expired (4-hour limit). Please re-upload the PDF.'
+      })
+    }
+ 
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${cached.filename}"`)
+    res.setHeader('Content-Length', cached.buffer.length)
+    res.setHeader('Cache-Control', 'private, max-age=14400')
+    res.send(cached.buffer)
+  } catch (err) {
+    console.error('servePdfFile error:', err)
+    res.status(500).json({ message: err.message })
   }
 }
 

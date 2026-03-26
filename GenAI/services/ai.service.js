@@ -61,15 +61,12 @@ async function retrieveRelevant(mindmapId, query, k = TOP_K) {
 export async function generateFromPdf(fileBuffer, filename, mindmapId) {
   console.log(`\n[AI] generateFromPdf — ${filename} (${mindmapId})`)
 
-  // Step 1: extract text per page using pdfExtractor
   const { pagesData } = await extractTextFromPDF(fileBuffer)
   console.log(`[AI]  Extracted ${pagesData.length} pages`)
 
-  // Step 2: chunk using pdfExtractor's chunkText
   const rawChunks = chunkText(pagesData, { chunkSize: 250, overlap: 60 })
   console.log(`[AI]  ${rawChunks.length} chunks`)
 
-  // Step 3: embed in batches of 20
   const BATCH = 20
   const embeddings = []
   for (let i = 0; i < rawChunks.length; i += BATCH) {
@@ -78,7 +75,6 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId) {
     embeddings.push(...vecs)
   }
 
-  // Step 4: persist chunks
   await PDFChunk.deleteMany({ mindmapId })
   const saved = await PDFChunk.insertMany(
     rawChunks.map((c, idx) => ({
@@ -91,31 +87,65 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId) {
   )
   console.log(`[AI]  Stored ${saved.length} chunks`)
 
-  // Step 5: retrieve top-K relevant to overview
   const overviewQuery = pagesData.slice(0, 2).map(p => p.text.slice(0, 200)).join(' ')
   const topChunks = await retrieveRelevant(mindmapId, overviewQuery, TOP_K)
 
-  // Step 6: generate mindmap
   const contextStr = topChunks
     .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
     .join('\n---\n')
 
-  const prompt = `You are a mindmap generator. Given these document excerpts (format: [chunkIdx|pageN] text):
+  const prompt = `You are an expert mindmap architect. Given these document excerpts (format: [chunk:N|page:P] text):
 
 ${contextStr}
 
-Create a hierarchical mindmap JSON for "${filename}". Rules:
-- 4-6 main branches, max 3 depth levels
-- Each node: "text" (concise), "sourceChunk" (integer chunk index above, or null)
-- Return ONLY valid JSON, no markdown
+Create a DEEP, comprehensive hierarchical mindmap JSON for the document "${filename}".
 
-JSON schema:
-{"root":{"text":"string","children":[{"text":"string","sourceChunk":0,"children":[{"text":"string","sourceChunk":null}]}]}}`
+STRICT REQUIREMENTS:
+1. The tree MUST have AT LEAST 4 levels of depth (root=level0, branches=level1, sub-branches=level2, details=level3, specifics=level4)
+2. Root node: concise title (4-8 words max)
+3. Level 1 nodes (branches): short category names (2-4 words each), 4-6 branches
+4. Level 2 nodes (sub-branches): short sub-topic labels (2-5 words), 2-4 per branch
+5. Level 3 nodes (details): medium descriptions (5-12 words), 2-3 per sub-branch
+6. Level 4 nodes (leaf specifics): DETAILED explanations (10-25 words with facts, numbers, examples from the document). These are the most informative nodes.
+7. Each node MUST have "sourceChunk" (integer chunk index from above, or null if not from a specific chunk)
+8. Return ONLY valid JSON, no markdown, no explanation
+
+JSON schema (strictly follow this structure):
+{
+  "root": {
+    "text": "Concise Root Title",
+    "sourceChunk": null,
+    "children": [
+      {
+        "text": "Branch Name",
+        "sourceChunk": 0,
+        "children": [
+          {
+            "text": "Sub-branch",
+            "sourceChunk": 1,
+            "children": [
+              {
+                "text": "Detail topic",
+                "sourceChunk": 2,
+                "children": [
+                  {
+                    "text": "Specific leaf with detailed explanation from document content here",
+                    "sourceChunk": 3,
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}`
 
   const model = await getModel(false)
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
-  console.log(`[AI]  Raw response length: ${raw.length}`)
 
   const mindmap = parseJSON(raw)
 
@@ -133,6 +163,11 @@ JSON schema:
 }
 
 // ── 2. GENERATE FROM PROMPT ──────────────────────────────────────────────────
+//
+// Asks the model to return REAL, VERIFIABLE web sources with a short
+// "searchText" phrase that actually appears on the linked page.
+// The frontend uses searchText with the browser Text Fragments API
+// (#:~:text=…) so Chrome/Edge auto-scrolls and highlights the passage.
 
 export async function generateFromPrompt(promptText) {
   console.log(`\n[AI] generateFromPrompt — "${promptText.slice(0, 80)}..."`)
@@ -141,14 +176,65 @@ export async function generateFromPrompt(promptText) {
 
   const prompt = `Create a comprehensive mindmap about: "${promptText}"
 
-Rules:
-- 4-6 main branches, 2-4 sub-nodes each, max 3 depth levels
-- For each node, if you know a reliable web source add it (title + URL)
-- Set "aiGenerated": true on every node
-- Return ONLY valid JSON, no markdown
+CRITICAL RULES:
+1. The tree MUST have AT LEAST 4 levels of depth (root=level0, branches=level1, sub-branches=level2, details=level3, specifics=level4)
+2. Sources — MANDATORY for every non-root node:
+   • "url": a REAL, currently accessible URL. Prefer Wikipedia (en.wikipedia.org), \
+official documentation sites (developer.mozilla.org, docs.python.org, etc.), \
+government portals, well-known educational sites.
+   • "title": the actual page title.
+   • "searchText": a short phrase of 6–12 words that VERBATIM EXISTS on that page. \
+This is used for browser text highlighting, so it must be exact.
+   • If you are not confident a URL is real and accessible, use a reputable Wikipedia \
+or MDN page that covers the topic instead — never invent URLs.
+3. Root node: concise title (3-6 words max)
+4. Level 1 nodes (branches): short category names (2-4 words), 4-6 branches total
+5. Level 2 nodes (sub-branches): short sub-topic labels (2-5 words), 2-4 per branch
+6. Level 3 nodes (details): medium descriptions (5-12 words), 2-3 per sub-branch  
+7. Level 4 nodes (leaf specifics): DETAILED explanations (10-25 words with concrete facts, examples, numbers, or explanations). These are the most informative nodes.
+8. Set "aiGenerated": true on every node.
+9. Return ONLY valid JSON — no markdown, no explanation.
 
-JSON schema:
-{"root":{"text":"string","aiGenerated":true,"children":[{"text":"string","aiGenerated":true,"sources":[{"title":"string","url":"string"}],"children":[{"text":"string","aiGenerated":true,"sources":[]}]}]}}`
+Example of a GOOD source object:
+{
+  "title": "Mind map — Wikipedia",
+  "url": "https://en.wikipedia.org/wiki/Mind_map",
+  "searchText": "visual thinking tool that helps structure information"
+}
+
+JSON schema (follow exactly):
+{
+  "root": {
+    "text": "Topic",
+    "aiGenerated": true,
+    "children": [
+      {
+        "text": "Branch",
+        "aiGenerated": true,
+        "sources": [
+          {
+            "title": "string",
+            "url": "https://real-url.example.com/page",
+            "searchText": "exact short phrase from that page"
+          }
+        ],
+        "children": [
+          {
+            "text": "Sub-node",
+            "aiGenerated": true,
+            "sources": [
+              {
+                "title": "string",
+                "url": "https://...",
+                "searchText": "exact phrase"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}`
 
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
@@ -169,13 +255,40 @@ JSON schema:
     attachGroundingSources(mindmap.root, groundingSources)
   }
 
+  // Validate and sanitise URLs so garbage doesn't reach the frontend
+  sanitiseSources(mindmap.root)
+
   return { ok: true, mindmap, groundingSources }
 }
 
+/** Recursively replace missing/empty sources with grounding sources */
 function attachGroundingSources(node, sources) {
   if (!node) return
-  if (!node.sources?.length && sources.length) node.sources = sources.slice(0, 2)
+  if (!node.sources?.length && sources.length) {
+    node.sources = sources.slice(0, 2)
+  }
   ;(node.children || []).forEach(c => attachGroundingSources(c, sources))
+}
+
+/**
+ * Walk the tree and remove any source whose URL is clearly invalid
+ * (relative, localhost, placeholder, etc.)
+ */
+function sanitiseSources(node) {
+  if (!node) return
+  if (Array.isArray(node.sources)) {
+    node.sources = node.sources.filter(s => {
+      if (!s?.url) return false
+      try {
+        const u = new URL(s.url)
+        // Reject obviously bad URLs
+        if (['localhost', '127.0.0.1', 'example.com'].includes(u.hostname)) return false
+        if (!['http:', 'https:'].includes(u.protocol)) return false
+        return true
+      } catch (_) { return false }
+    })
+  }
+  ;(node.children || []).forEach(sanitiseSources)
 }
 
 // ── 3. SUGGEST NODES ─────────────────────────────────────────────────────────

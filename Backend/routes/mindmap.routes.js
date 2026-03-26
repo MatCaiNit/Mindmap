@@ -12,7 +12,8 @@ import {
   verifyMindmapAccess,
   generateFromPdf,
   generateFromPrompt,
-  aiSuggest
+  aiSuggest,
+  servePdfFile
 } from '../controllers/mindmap.controller.js';
 import { 
   getVersion,
@@ -53,6 +54,7 @@ router.post('/:id/restore', requireMindmapAccess('write'), restoreSnapshot);
 router.post('/:id/generate-from-pdf', pdfUpload.single('pdf'), generateFromPdf);
 router.post('/:id/generate-from-prompt', generateFromPrompt)
 router.post('/:id/ai-suggest',           aiSuggest) 
+router.get('/:id/pdf-file', servePdfFile);
 
 router.post('/', createMindmap);                // POST /api/mindmaps
 router.get('/', listMyMindmaps);                // GET  /api/mindmaps
