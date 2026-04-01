@@ -147,77 +147,75 @@ export class HybridRetriever {
    * @returns {Array}  [{text, score, pageNum?, topic?}]
    */
   async retrieve(question, mindmapId, opts = {}) {
-    const {
-      topK           = 6,
-      scoreThreshold = 0.25,
-      useMMR         = true,
-      expand         = true,
-    } = opts;
-
+    const { topK = 6 } = opts;
     const coll = await this._getCollection();
+    
+    const queryVec = await embedText(question, "RETRIEVAL_QUERY");
 
-    // 1. Query expansion
-    const queries = expand ? await expandQuery(question) : [question];
+    const pipeline = [
+        {
+            $vectorSearch: {
+                index: "vector_index",
+                path: "embedding",
+                queryVector: queryVec,
+                numCandidates: 100,
+                limit: 50,
+                filter: { mindmapId: mindmapId }
+            }
+        },
+        {
+            $addFields: { searchType: "vector" }
+        },
+        {
+            $unionWith: {
+                coll: "pdfchunk",
+                pipeline: [
+                    {
+                        $search: {
+                            index: "default",
+                            compound: {
+                                must: [
+                                    { text: { query: question, path: "text" } },
+                                    { equals: { value: mindmapId, path: "mindmapId" } }
+                                ]
+                            }
+                        }
+                    },
+                    { $limit: 50 },
+                    { $addFields: { searchType: "keyword" } }
+                ]
+            }
+        },
+        {
+            $group: {
+                _id: "$_id",
+                text: { $first: "$text" },
+                pageNum: { $first: "$pageNum" },
+                vectorScore: { $max: { $meta: "vectorSearchScore" } },
+                keywordScore: { $max: { $meta: "searchScore" } },
+                embedding: { $first: "$embedding" }
+            }
+        }
+    ];
 
-    // 2. Embed tất cả queries
-    const queryVectors = await embedBatch(queries, "RETRIEVAL_QUERY");
-    const mainVec      = queryVectors[0];
+    const rawResults = await coll.aggregate(pipeline).toArray();
 
-    // 3. Load chunks của mindmap từ MongoDB
-    const allChunks = await coll.find({ mindmapId }).toArray();
-    if (allChunks.length === 0) return [];
-
-    // 4. Vector scores  (với mỗi query variant, lấy max)
-    const qTok = question.toLowerCase().split(/\s+/);
-    const avgLen = allChunks.reduce((s, c) => s + (c.text || "").split(" ").length, 0)
-                   / allChunks.length;
-
-    const scored = allChunks.map(chunk => {
-      const chunkVec = chunk.embedding;
-      const vecScore = chunkVec
-        ? Math.max(...queryVectors.map(qv => cosineSim(qv, chunkVec)))
-        : 0;
-      const bm25     = bm25Score(qTok, chunk.text || "", avgLen);
-      return { chunk, vecScore, bm25Score: bm25 };
-    });
-
-    // 5. RRF fusion
-    const byVec  = [...scored].sort((a, b) => b.vecScore  - a.vecScore);
-    const byBM25 = [...scored].sort((a, b) => b.bm25Score - a.bm25Score);
-    const rankVec  = new Map(byVec.map((s, i)  => [s.chunk._id.toString(), i]));
-    const rankBM25 = new Map(byBM25.map((s, i) => [s.chunk._id.toString(), i]));
-
-    const fused = scored.map(s => ({
-      ...s,
-      rrf: rrfScore(
-        rankVec.get(s.chunk._id.toString()),
-        rankBM25.get(s.chunk._id.toString()),
-      ),
+    const candidates = rawResults.map(r => ({
+        ...r,
+        vector: r.embedding,
+        combinedScore: (r.vectorScore || 0) + (r.keywordScore || 0)
     }));
-    fused.sort((a, b) => b.rrf - a.rrf);
 
-    // 6. Score threshold filter
-    const filtered = fused.filter(s => s.vecScore >= scoreThreshold);
-    const pool     = filtered.length > 0 ? filtered : fused;
-    const top20    = pool.slice(0, 20);  // candidate pool cho MMR
+    candidates.sort((a, b) => b.combinedScore - a.combinedScore);
 
-    // 7. MMR reranking
-    let final;
-    if (useMMR && mainVec) {
-      const withVec = top20.map(s => ({ ...s, vector: s.chunk.embedding || mainVec }));
-      final = mmrRerank(mainVec, withVec, topK);
-    } else {
-      final = top20.slice(0, topK);
-    }
+    const final = mmrRerank(queryVec, candidates.slice(0, 20), topK);
 
     return final.map(s => ({
-      text:     s.chunk.text,
-      score:    parseFloat(s.vecScore.toFixed(4)),
-      rrfScore: parseFloat(s.rrf.toFixed(4)),
-      pageNum:  s.chunk.pageNum,
-      topic:    s.chunk.topic,
+        text: s.text,
+        pageNum: s.pageNum,
+        score: s.combinedScore
     }));
-  }
+}
 
   async close() {
     if (this._client) {

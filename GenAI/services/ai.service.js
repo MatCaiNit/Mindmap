@@ -5,6 +5,7 @@ import PDFChunk from '../models/PDFChunk.js'
 import { extractTextFromPDF, chunkText } from './pdfExtractor.js'
 import { embedText, embedBatch } from './embedder.js'
 import { cosineSimilarity } from '../utils/validate.js'
+import { HybridRetriever } from './retriever.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
@@ -34,26 +35,50 @@ async function getModel(useSearch = false) {
 }
 
 async function retrieveRelevant(mindmapId, query, k = TOP_K) {
-  const queryVec = await embedText(query, 'RETRIEVAL_QUERY')
-  const all = await PDFChunk.find({ mindmapId })
-    .select('text pageNum chunkIndex embedding')
-    .lean()
+  console.log(`\n[RAG] Đang tìm kiếm Vector cho câu hỏi: "${query.slice(0, 50)}..."`);
+  
+  const queryVec = await embedText(query, 'RETRIEVAL_QUERY');
 
-  const scored = all.map(c => ({
-    ...c,
-    score: cosineSimilarity(queryVec, c.embedding),
-  }))
-  scored.sort((a, b) => b.score - a.score)
+  const pipeline = [
+    {
+      $vectorSearch: {
+        index: "vector_index",
+        path: "embedding",
+        queryVector: queryVec,
+        numCandidates: k * 10,
+        limit: k * 2,
+        filter: { 
+          mindmapId: mindmapId
+        } 
+      }
+    },
+    {
+      
+      $project: {
+        _id: 0,
+        text: 1,
+        pageNum: 1,
+        chunkIndex: 1,
+        score: { $meta: "vectorSearchScore" }
+      }
+    }
+  ];
 
-  const selected = []
+  
+  const scored = await PDFChunk.aggregate(pipeline);
+
+  
+  const selected = [];
   for (const c of scored) {
-    if (selected.length >= k) break
+    if (selected.length >= k) break;
     const isDup = selected.some(
       s => Math.abs(s.score - c.score) < 0.03 && s.pageNum === c.pageNum
-    )
-    if (!isDup) selected.push(c)
+    );
+    if (!isDup) selected.push(c);
   }
-  return selected
+  
+  console.log(`[RAG] Đã lấy thành công ${selected.length} chunks siêu tốc từ Atlas.`);
+  return selected;
 }
 
 // ── 1. GENERATE FROM PDF ─────────────────────────────────────────────────────
@@ -64,7 +89,7 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId) {
   const { pagesData } = await extractTextFromPDF(fileBuffer)
   console.log(`[AI]  Extracted ${pagesData.length} pages`)
 
-  const rawChunks = chunkText(pagesData, { chunkSize: 250, overlap: 60 })
+  const rawChunks = chunkText(pagesData, { maxChunkSize: 1000, overlap: 200 })
   console.log(`[AI]  ${rawChunks.length} chunks`)
 
   const BATCH = 20
@@ -87,10 +112,21 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId) {
   )
   console.log(`[AI]  Stored ${saved.length} chunks`)
 
-  const overviewQuery = pagesData.slice(0, 2).map(p => p.text.slice(0, 200)).join(' ')
-  const topChunks = await retrieveRelevant(mindmapId, overviewQuery, TOP_K)
+  
+  const MAX_CHUNKS_FOR_PROMPT = 45;
+  let selectedChunks = [];
 
-  const contextStr = topChunks
+  if (saved.length <= MAX_CHUNKS_FOR_PROMPT) {
+    selectedChunks = saved;
+  } else {
+    const step = saved.length / MAX_CHUNKS_FOR_PROMPT;
+    for (let i = 0; i < MAX_CHUNKS_FOR_PROMPT; i++) {
+      const index = Math.floor(i * step);
+      if (saved[index]) selectedChunks.push(saved[index]);
+    }
+  }
+
+  const contextStr = selectedChunks
     .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
     .join('\n---\n')
 
@@ -158,7 +194,7 @@ JSON schema (strictly follow this structure):
       pageNum:    c.pageNum,
       chunkIndex: c.chunkIndex,
     })),
-    meta: { totalChunks: saved.length, usedChunks: topChunks.length },
+    meta: { totalChunks: saved.length, usedChunks: selectedChunks.length },
   }
 }
 
@@ -294,18 +330,46 @@ function sanitiseSources(node) {
 // ── 3. SUGGEST NODES ─────────────────────────────────────────────────────────
 
 export async function suggestNodes(context) {
-  const { currentNode, parentNodes = [], siblings = [] } = context
+  const { currentNode, parentNodes = [], siblings = [], mindmapId } = context
   console.log(`[AI] suggestNodes — "${currentNode}"`)
+
+  let docContext = "Không có tài liệu tham chiếu cụ thể.";
+
+  
+  if (mindmapId) {
+     try {
+        const retriever = new HybridRetriever(process.env.MONGO_URI);
+        
+        
+        const searchQuery = [...parentNodes, currentNode].join(' '); 
+        const relevantDocs = await retriever.retrieve(searchQuery, mindmapId, { 
+            topK: 4, 
+            useMMR: true 
+        });
+        
+        if (relevantDocs.length > 0) {
+            docContext = relevantDocs.map(d => d.text).join('\n---\n');
+        }
+     } catch (err) {
+        console.error("[AI] Error retrieving context for suggestNodes:", err);
+     }
+  }
 
   const model = await getModel(false)
 
-  const prompt = `Suggest 5 child mindmap nodes for: "${currentNode}"
-Parent chain: ${parentNodes.slice(-3).join(' > ') || 'root'}
-Existing siblings: ${siblings.slice(0, 3).join(', ') || 'none'}
+  const prompt = `Bạn là chuyên gia tạo Mindmap. Dựa vào tài liệu nội bộ sau đây:
+<Context>
+${docContext}
+</Context>
 
-Return ONLY a JSON array of 5 objects:
-[{"text":"concise label"},...]
-No explanation, no markdown.`
+Hãy gợi ý 5 node con (child nodes) tiếp theo cho node: "${currentNode}"
+Chuỗi node cha: ${parentNodes.slice(-3).join(' > ') || 'root'}
+Các node anh em đã có: ${siblings.slice(0, 3).join(', ') || 'none'}
+
+YÊU CẦU:
+- Bám sát nội dung <Context> được cung cấp (nếu có).
+- Return ONLY a JSON array of 5 objects: [{"text":"concise label"},...]
+- No explanation, no markdown.`
 
   const result = await model.generateContent(prompt)
   const raw = result.response.text()

@@ -1,9 +1,15 @@
 // Frontend/src/lib/treeLayout.js
 
-const LEVEL_X_SPACING = 250
 const MIN_Y_SPACING = 80
 const NODE_HEIGHT = 60
-const SUBTREE_VERTICAL_GAP = 24
+const HORIZONTAL_GAP = 70 
+export function estimateNodeWidth(label = '') {
+  const textLen = label ? label.length : 0
+  const estimated = 40 + (textLen * 8)
+  const MIN_WIDTH = 120
+  const MAX_WIDTH = 350 
+  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, estimated))
+}
 
 /**
  * Calculate subtree height recursively
@@ -56,7 +62,7 @@ function buildTree(yNodes) {
       nodes.push({
         id: key,
         parentId: value.parentId || null,
-        label: value.label,
+        label: value.label || '',
         side: value.side || null,
         autoAlign: value.autoAlign !== false,
       })
@@ -104,24 +110,30 @@ function layoutBalancedSubtree(parent, tree, parentX, parentY, positions, level,
     })
     
     if (leftChildren.length > 0) {
-      layoutSideBySubtree(leftChildren, parentX, parentY, 'left', tree, positions, level, yNodes)
+      layoutSideBySubtree(leftChildren, parent, parentX, parentY, 'left', tree, positions, level, yNodes)
     }
     
     if (rightChildren.length > 0) {
-      layoutSideBySubtree(rightChildren, parentX, parentY, 'right', tree, positions, level, yNodes)
+      layoutSideBySubtree(rightChildren, parent, parentX, parentY, 'right', tree, positions, level, yNodes)
     }
   } else {
     const parentSide = parent.side || 'right'
-    layoutSideBySubtree(children, parentX, parentY, parentSide, tree, positions, level, yNodes)
+    layoutSideBySubtree(children, parent, parentX, parentY, parentSide, tree, positions, level, yNodes)
   }
 }
 
 /**
  * Layout siblings on one side
  */
-function layoutSideBySubtree(siblings, parentX, parentY, side, tree, positions, level, yNodes) {
+function layoutSideBySubtree(siblings, parent, parentX, parentY, side, tree, positions, level, yNodes) {
   const direction = side === 'left' ? -1 : 1
-  const x = parentX + (direction * LEVEL_X_SPACING)
+  
+  const parentWidth = estimateNodeWidth(parent.label)
+  
+  const maxSiblingWidth = Math.max(...siblings.map(s => estimateNodeWidth(s.label)))
+  
+  const dynamicXSpacing = (parentWidth / 2) + HORIZONTAL_GAP + (maxSiblingWidth / 2)
+  const x = parentX + (direction * dynamicXSpacing)
   
   const siblingsWithHeight = siblings.map(s => ({
     node: s,
@@ -156,24 +168,29 @@ function layoutSideBySubtree(siblings, parentX, parentY, side, tree, positions, 
   })
 }
 
-// ... rest of helper functions remain the same
 export function calculateNewNodePosition(parentId, yNodes, side = null) {
   const parent = yNodes.get(parentId)
   if (!parent?.position) return { x: 0, y: 0 }
   
   const nodeSide = side || getSuggestedSide(parentId, yNodes)
   const direction = nodeSide === 'left' ? -1 : 1
+  
   let moreYSpacing = 0
-  if(parent.isFree){
+  if (parent.isFree) {
     moreYSpacing = 40
   }
+  
   let siblingCount = 0
   yNodes.forEach(v => {
     if (v.parentId === parentId && v.autoAlign !== false) siblingCount++
   })
   
+  const parentWidth = estimateNodeWidth(parent.label)
+  const defaultChildWidth = 120 // Node mới tinh thường chưa có text dài
+  const dynamicXSpacing = (parentWidth / 2) + HORIZONTAL_GAP + (defaultChildWidth / 2)
+
   return {
-    x: parent.position.x + (direction * LEVEL_X_SPACING),
+    x: parent.position.x + (direction * dynamicXSpacing),
     y: parent.position.y + (siblingCount * (40 + moreYSpacing))
   }
 }

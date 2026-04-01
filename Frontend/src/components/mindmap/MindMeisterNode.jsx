@@ -182,6 +182,7 @@ const MindMeisterNode = memo(({ data, id, selected, dragging }) => {
       filter:          data.filter    || 'none',
       position:        'relative',
       minWidth:        level === 0 ? '180px' : level === 1 ? '140px' : '100px',
+      maxWidth:        '350px'
     }
 
     if (aiSource) {

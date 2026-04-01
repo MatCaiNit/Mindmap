@@ -47,29 +47,64 @@ export async function extractTextFromPDF(buffer) {
 }
 
 // Hàm chunkText giữ nguyên như cũ, vì nó đã hoạt động hoàn hảo với mảng pagesData
-export function chunkText(pagesData, options = {}) {
-  const { chunkSize = 250, overlap = 60 } = options;
+export function chunkText(pagesData, { maxChunkSize = 1000, overlap = 200 } = {}) {
   const chunks = [];
+  let globalChunkIndex = 0;
 
   for (const page of pagesData) {
-    const { pageNum, text } = page;
-    
-    const words = text.split(' ');
-    let startIndex = 0;
+    const sentences = page.text.match(/[^.!?\n]+[.!?\n]+/g) || [page.text];
 
-    while (startIndex < words.length) {
-      const endIndex = Math.min(startIndex + chunkSize, words.length);
-      const chunkWords = words.slice(startIndex, endIndex);
-      const chunkTextStr = chunkWords.join(' ');
+    let currentChunkText = "";
 
-      if (chunkTextStr.trim().length > 20) {
-        chunks.push({
-          text: chunkTextStr,
-          pageNum: pageNum 
-        });
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i].trim();
+      if (!sentence) continue;
+      if (sentence.length > maxChunkSize) {
+        if (currentChunkText) {
+          chunks.push({
+            pageNum: page.pageNum,
+            chunkIndex: globalChunkIndex++,
+            text: currentChunkText.trim()
+          });
+          currentChunkText = "";
+        }
+        
+        for (let j = 0; j < sentence.length; j += maxChunkSize) {
+          chunks.push({
+            pageNum: page.pageNum,
+            chunkIndex: globalChunkIndex++,
+            text: sentence.slice(j, j + maxChunkSize).trim()
+          });
+        }
+        continue;
       }
 
-      startIndex += (chunkSize - overlap);
+      if ((currentChunkText.length + sentence.length) > maxChunkSize && currentChunkText.length > 0) {
+        chunks.push({
+          pageNum: page.pageNum,
+          chunkIndex: globalChunkIndex++,
+          text: currentChunkText.trim()
+        });
+
+        let overlapText = "";
+        let backIndex = i - 1;
+        while (backIndex >= 0 && overlapText.length < overlap) {
+          overlapText = sentences[backIndex].trim() + " " + overlapText;
+          backIndex--;
+        }
+
+        currentChunkText = overlapText.trim() + " " + sentence;
+      } else {
+        currentChunkText += (currentChunkText ? " " : "") + sentence;
+      }
+    }
+
+    if (currentChunkText.trim().length > 0) {
+      chunks.push({
+        pageNum: page.pageNum,
+        chunkIndex: globalChunkIndex++,
+        text: currentChunkText.trim()
+      });
     }
   }
 
