@@ -2,135 +2,100 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import PDFChunk from '../models/PDFChunk.js'
-import { extractTextFromPDF, chunkText } from './pdfExtractor.js'
-import { embedText, embedBatch } from './embedder.js'
-import { cosineSimilarity } from '../utils/validate.js'
+import { extractTextFromPDF, chunkText, analyzeStructure, chunkByStructure } from './pdfExtractor.js'
+import { embedText, embedBatch, embedAndStore } from './embedder.js'
+import { calculateMetrics } from '../utils/validate.js' 
 import { HybridRetriever } from './retriever.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
-const GENERATION_MODEL  = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
-const TOP_K             = 5
-const MAX_CHUNK_IN_PROMPT = 380
-
-// ── HELPERS ──────────────────────────────────────────────────────────────────
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite' 
+const TOP_K = 5
 
 function parseJSON(raw) {
-  const clean = raw.replace(/```json|```/g, '').trim()
-  try { return JSON.parse(clean) } catch (_) {
-    const m = clean.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
-    if (m) return JSON.parse(m[0])
-    throw new Error('AI returned invalid JSON')
-  }
-}
-
-async function getModel(useSearch = false) {
-  if (useSearch && process.env.GEMINI_SEARCH_GROUNDING === 'true') {
-    return genAI.getGenerativeModel({
-      model: GENERATION_MODEL,
-      tools: [{ googleSearch: {} }],
-    })
-  }
-  return genAI.getGenerativeModel({ model: GENERATION_MODEL })
-}
-
-async function retrieveRelevant(mindmapId, query, k = TOP_K) {
-  console.log(`\n[RAG] Đang tìm kiếm Vector cho câu hỏi: "${query.slice(0, 50)}..."`);
-  
-  const queryVec = await embedText(query, 'RETRIEVAL_QUERY');
-
-  const pipeline = [
-    {
-      $vectorSearch: {
-        index: "vector_index",
-        path: "embedding",
-        queryVector: queryVec,
-        numCandidates: k * 10,
-        limit: k * 2,
-        filter: { 
-          mindmapId: mindmapId
-        } 
-      }
-    },
-    {
-      
-      $project: {
-        _id: 0,
-        text: 1,
-        pageNum: 1,
-        chunkIndex: 1,
-        score: { $meta: "vectorSearchScore" }
-      }
+    const clean = raw.replace(/```json|```/g, '').trim()
+    try { return JSON.parse(clean) } catch (_) {
+        const m = clean.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
+        if (m) return JSON.parse(m[0])
+        throw new Error('AI returned invalid JSON')
     }
-  ];
-
-  
-  const scored = await PDFChunk.aggregate(pipeline);
-
-  
-  const selected = [];
-  for (const c of scored) {
-    if (selected.length >= k) break;
-    const isDup = selected.some(
-      s => Math.abs(s.score - c.score) < 0.03 && s.pageNum === c.pageNum
-    );
-    if (!isDup) selected.push(c);
-  }
-  
-  console.log(`[RAG] Đã lấy thành công ${selected.length} chunks siêu tốc từ Atlas.`);
-  return selected;
 }
 
-// ── 1. GENERATE FROM PDF ─────────────────────────────────────────────────────
+async function getAiModel(useSearch = false) {
+    if (useSearch && process.env.GEMINI_SEARCH_GROUNDING === 'true') {
+        return genAI.getGenerativeModel({
+            model: MODEL_NAME,
+            tools: [{ googleSearch: {} }],
+        })
+    }
+    return genAI.getGenerativeModel({ model: MODEL_NAME })
+}
 
 export async function generateFromPdf(fileBuffer, filename, mindmapId) {
-  console.log(`\n[AI] generateFromPdf — ${filename} (${mindmapId})`)
+    console.log(`\n[AI] generateFromPdf — ${filename} (${mindmapId})`);
 
-  const { pagesData } = await extractTextFromPDF(fileBuffer)
-  console.log(`[AI]  Extracted ${pagesData.length} pages`)
+    const { pagesData } = await extractTextFromPDF(fileBuffer);
+    console.log(`[AI]  Extracted ${pagesData.length} pages`);
 
-  const rawChunks = chunkText(pagesData, { maxChunkSize: 1000, overlap: 200 })
-  console.log(`[AI]  ${rawChunks.length} chunks`)
-
-  const BATCH = 20
-  const embeddings = []
-  for (let i = 0; i < rawChunks.length; i += BATCH) {
-    const batch = rawChunks.slice(i, i + BATCH).map(c => c.text)
-    const vecs = await embedBatch(batch, 'RETRIEVAL_DOCUMENT')
-    embeddings.push(...vecs)
-  }
-
-  await PDFChunk.deleteMany({ mindmapId })
-  const saved = await PDFChunk.insertMany(
-    rawChunks.map((c, idx) => ({
-      mindmapId,
-      text:       c.text,
-      pageNum:    c.pageNum,
-      chunkIndex: idx,
-      embedding:  embeddings[idx] || [],
-    }))
-  )
-  console.log(`[AI]  Stored ${saved.length} chunks`)
-
-  
-  const MAX_CHUNKS_FOR_PROMPT = 45;
-  let selectedChunks = [];
-
-  if (saved.length <= MAX_CHUNKS_FOR_PROMPT) {
-    selectedChunks = saved;
-  } else {
-    const step = saved.length / MAX_CHUNKS_FOR_PROMPT;
-    for (let i = 0; i < MAX_CHUNKS_FOR_PROMPT; i++) {
-      const index = Math.floor(i * step);
-      if (saved[index]) selectedChunks.push(saved[index]);
+    const structureInfo = analyzeStructure(pagesData);
+    let isStructured = structureInfo.isStructured;
+    let rawChunks = [];
+    if (isStructured) {
+        console.log("[AI] Tài liệu CÓ CẤU TRÚC (Phát hiện Mục lục / Tiêu đề).");
+        rawChunks = chunkByStructure(pagesData, structureInfo);
+    } else {
+        console.log("[AI] Tài liệu KHÔNG CẤU TRÚC.");
+        rawChunks = chunkText(pagesData, { maxChunkSize: 1000, overlap: 200 });
     }
-  }
 
-  const contextStr = selectedChunks
-    .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
-    .join('\n---\n')
+    
+    const BATCH = 20;
+    const embeddings = [];
+    for (let i = 0; i < rawChunks.length; i += BATCH) {
+        const batch = rawChunks.slice(i, i + BATCH).map(c => c.text);
+        const vecs = await embedBatch(batch, 'RETRIEVAL_DOCUMENT');
+        embeddings.push(...vecs);
+    }
 
-  const prompt = `You are an expert mindmap architect. Given these document excerpts (format: [chunk:N|page:P] text):
+    await PDFChunk.deleteMany({ mindmapId });
+    const saved = await PDFChunk.insertMany(
+        rawChunks.map((c, idx) => ({
+            mindmapId,
+            text:       c.text,
+            pageNum:    c.pageNum,
+            chunkIndex: idx,
+            embedding:  embeddings[idx] || [],
+        }))
+    );
+    console.log(`[AI]  Stored ${saved.length} chunks`);
+
+    const MAX_CHUNKS_FOR_PROMPT = 15;
+    const MAX_CHUNK_IN_PROMPT = 800;
+    let selectedChunks = [];
+
+    if (saved.length <= MAX_CHUNKS_FOR_PROMPT) {
+        selectedChunks = saved;
+    } else {
+        const step = saved.length / MAX_CHUNKS_FOR_PROMPT;
+        for (let i = 0; i < MAX_CHUNKS_FOR_PROMPT; i++) {
+            const index = Math.floor(i * step);
+            if (saved[index]) selectedChunks.push(saved[index]);
+        }
+    }
+
+    const model = await getAiModel(false);
+    let mindmap;
+
+    if (isStructured) {
+        console.log("[AI] Routing to processStructuredFile...");
+        mindmap = await processStructuredFile(selectedChunks, filename, model);
+    } else {
+        console.log("[AI] Routing to Strict Prompt Builder...");
+        const contextStr = selectedChunks
+            .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
+            .join('\n---\n');
+
+        const prompt = `You are an expert mindmap architect. Given these document excerpts (format: [chunk:N|page:P] text):
 
 ${contextStr}
 
@@ -177,38 +142,129 @@ JSON schema (strictly follow this structure):
       }
     ]
   }
-}`
+}`;
+        const aiResult = await model.generateContent(prompt); 
+        mindmap = parseJSON(aiResult.response.text());
+    }
 
-  const model = await getModel(false)
-  const result = await model.generateContent(prompt)
-  const raw = result.response.text()
+    const rawPdfText = saved.map(c => c.text || "").join(' ');
+    let evaluationReport = { status: "Skipped", metrics: {} };
+    // try {
+    //     evaluationReport = calculateMetrics(mindmap, rawPdfText);
+    //     console.log("\n" + "=".repeat(30));
+    //     console.log("📊 BÁO CÁO CHẤT LƯỢNG MINDMAP");
+    //     console.table(evaluationReport.metrics);
+    //     console.log("Trạng thái:", evaluationReport.status);
+    //     console.log("=".repeat(30) + "\n");
+    // } catch (e) {
+    //     console.log("[AI] Evaluation failed:", e.message);
+    // }
 
-  const mindmap = parseJSON(raw)
-
-  return {
-    ok: true,
-    mindmap,
-    chunks: saved.map(c => ({
-      _id:        c._id,
-      text:       c.text,
-      pageNum:    c.pageNum,
-      chunkIndex: c.chunkIndex,
-    })),
-    meta: { totalChunks: saved.length, usedChunks: selectedChunks.length },
-  }
+    return {
+        ok: true,
+        mindmap,
+        evaluation: evaluationReport,
+        chunks: saved.map(c => ({
+            _id:        c._id,
+            text:       c.text,
+            pageNum:    c.pageNum,
+            chunkIndex: c.chunkIndex,
+        })),
+        meta: { totalChunks: saved.length, usedChunks: selectedChunks.length },
+    };
 }
 
-// ── 2. GENERATE FROM PROMPT ──────────────────────────────────────────────────
-//
-// Asks the model to return REAL, VERIFIABLE web sources with a short
-// "searchText" phrase that actually appears on the linked page.
-// The frontend uses searchText with the browser Text Fragments API
-// (#:~:text=…) so Chrome/Edge auto-scrolls and highlights the passage.
+async function processUnstructuredFile(chunks, filename, model) {
+    const parts = [];
+    const groupSize = 20; 
+
+    for (let i = 0; i < chunks.length; i += groupSize) {
+        const context = chunks.slice(i, i + groupSize).map(c => c.text).join('\n');
+        const prompt = `Phân tích đoạn văn bản sau và tạo sơ đồ tư duy CHI TIẾT (Depth Level 5+). 
+                        Mục tiêu: Trích xuất các con số, định nghĩa và quy trình cụ thể.
+                        Dữ liệu: ${context}
+                        Trả về định dạng JSON: {"root": {"text": "...", "children": [...]}}`;
+        
+        const res = await model.generateContent(prompt);
+        parts.push(res.response.text());
+    }
+
+    
+    const stitchPrompt = `Hợp nhất các phần sơ đồ sau thành một Master Mindmap duy nhất cho tài liệu "${filename}". 
+                         QUY TẮC:
+                         1. Loại bỏ các ý trùng lặp.
+                         2. Giữ lại các chi tiết sâu nhất (level 5-6).
+                         3. Root node phải là "${filename}".
+                         Dữ liệu các phần: ${parts.join('\n')}`;
+
+    const finalRes = await model.generateContent(stitchPrompt);
+    return parseJSON(finalRes.response.text());
+}
+
+
+async function processStructuredFile(chunks, filename, model) {
+    //Dùng toàn bộ chunks được truyền vào (thay vì chỉ cắt 20 chunks đầu tiên)
+    const contextStr = chunks
+        .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, 800)}`)
+        .join('\n---\n');
+
+    const prompt = `Bạn là một chuyên gia Mindmap. Tài liệu "${filename}" có cấu trúc rõ ràng (có mục lục/tiêu đề).
+Dựa trên các đoạn trích dẫn sau (định dạng: [chunk:N|page:P] nội dung):
+
+${contextStr}
+
+Hãy tạo một Mindmap CỰC KỲ CHI TIẾT.
+
+YÊU CẦU BẮT BUỘC:
+1. Cây thư mục PHẢI có ít nhất 4-5 tầng (root -> chương -> phần -> chi tiết -> thông số/định nghĩa cụ thể).
+2. Tuyệt đối KHÔNG trả về "children": [] ở các node trên cùng. Phải phân tích thật sâu để tạo ra các nhánh con.
+3. Node lá (tầng cuối cùng) phải chứa các định nghĩa, con số, hoặc ví dụ cụ thể từ văn bản.
+4. Mỗi node phải có "sourceChunk" (số nguyên tương ứng với đoạn trích).
+5. Trả về DUY NHẤT mã JSON hợp lệ, không giải thích, không bọc markdown.
+
+JSON schema (BẮT BUỘC tuân thủ cấu trúc lồng nhau này):
+{
+  "root": {
+    "text": "Tên tài liệu / Chủ đề chính",
+    "sourceChunk": null,
+    "children": [
+      {
+        "text": "Tên Chương / Nhánh 1",
+        "sourceChunk": 0,
+        "children": [
+          {
+            "text": "Tiêu đề phụ (Phần 1.1)",
+            "sourceChunk": 1,
+            "children": [
+              {
+                "text": "Chi tiết quan trọng",
+                "sourceChunk": 2,
+                "children": [
+                  {
+                    "text": "Giải thích cụ thể, định nghĩa, thông số hoặc ví dụ",
+                    "sourceChunk": 3,
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}`;
+    
+    const res = await model.generateContent(prompt);
+    return parseJSON(res.response.text());
+}
+
+
 
 export async function generateFromPrompt(promptText) {
   console.log(`\n[AI] generateFromPrompt — "${promptText.slice(0, 80)}..."`)
 
-  const model = await getModel(true)
+  const model = await getAiModel(true)
 
   const prompt = `Create a comprehensive mindmap about: "${promptText}"
 
@@ -250,7 +306,7 @@ JSON schema (follow exactly):
         "sources": [
           {
             "title": "string",
-            "url": "https://real-url.example.com/page",
+            "url": "https://en.wikipedia.org/wiki/Concept_map",
             "searchText": "exact short phrase from that page"
           }
         ],
@@ -291,13 +347,11 @@ JSON schema (follow exactly):
     attachGroundingSources(mindmap.root, groundingSources)
   }
 
-  // Validate and sanitise URLs so garbage doesn't reach the frontend
   sanitiseSources(mindmap.root)
 
   return { ok: true, mindmap, groundingSources }
 }
 
-/** Recursively replace missing/empty sources with grounding sources */
 function attachGroundingSources(node, sources) {
   if (!node) return
   if (!node.sources?.length && sources.length) {
@@ -306,10 +360,6 @@ function attachGroundingSources(node, sources) {
   ;(node.children || []).forEach(c => attachGroundingSources(c, sources))
 }
 
-/**
- * Walk the tree and remove any source whose URL is clearly invalid
- * (relative, localhost, placeholder, etc.)
- */
 function sanitiseSources(node) {
   if (!node) return
   if (Array.isArray(node.sources)) {
@@ -317,7 +367,6 @@ function sanitiseSources(node) {
       if (!s?.url) return false
       try {
         const u = new URL(s.url)
-        // Reject obviously bad URLs
         if (['localhost', '127.0.0.1', 'example.com'].includes(u.hostname)) return false
         if (!['http:', 'https:'].includes(u.protocol)) return false
         return true
@@ -326,8 +375,6 @@ function sanitiseSources(node) {
   }
   ;(node.children || []).forEach(sanitiseSources)
 }
-
-// ── 3. SUGGEST NODES ─────────────────────────────────────────────────────────
 
 export async function suggestNodes(context) {
   const { currentNode, parentNodes = [], siblings = [], mindmapId } = context
@@ -355,7 +402,7 @@ export async function suggestNodes(context) {
      }
   }
 
-  const model = await getModel(false)
+  const model = await getAiModel(false)
 
   const prompt = `Bạn là chuyên gia tạo Mindmap. Dựa vào tài liệu nội bộ sau đây:
 <Context>
@@ -376,8 +423,6 @@ YÊU CẦU:
   const arr = parseJSON(raw)
   return Array.isArray(arr) ? arr : (arr.suggestions || [])
 }
-
-// ── 4. DELETE CHUNKS ─────────────────────────────────────────────────────────
 
 export async function deleteChunks(mindmapId) {
   const res = await PDFChunk.deleteMany({ mindmapId })

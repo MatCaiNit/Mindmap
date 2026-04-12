@@ -204,6 +204,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
     const nodeColor    = colorPool[siblingCount % colorPool.length];
 
     yNodes.set(newId, {
+      text: '',  // Dùng text cho đồng bộ với AI
       label: '',
       position,
       parentId,
@@ -377,6 +378,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
           position: v.position || { x: 0, y: 0 },
           data: {
             ...v,
+            label: v.label || v.text || '',
             level:     calculateLevel(k),
             yNodes,
             isReadOnly,

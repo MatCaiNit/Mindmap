@@ -1,15 +1,3 @@
-/**
- * GenAI/services/retriever.js  –  UPGRADED
- * ==========================================
- * Cải tiến so với version cũ:
- *
- *  1. HYBRID SEARCH      – vector cosine + BM25 keyword, kết hợp RRF
- *  2. MMR RERANKING      – Maximal Marginal Relevance, tránh duplicate chunks
- *  3. QUERY EXPANSION    – Gemini sinh 2 query variant, tăng recall
- *  4. SCORE THRESHOLD    – filter chunk score < 0.25
- *  5. PARENT CONTEXT     – retrieve chunk nhỏ, expand về parent text
- */
-
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MongoClient } from "mongodb";
 
@@ -19,14 +7,7 @@ const GEN_MODEL   = "gemini-3.1-flash-lite-preview";
 const MONGO_DB    = process.env.MONGO_DB   || "mindmap";
 const MONGO_COLL  = process.env.MONGO_COLL || "pdfchunks";
 
-// ─── Embedding ────────────────────────────────────────────────────────────────
 
-/**
- * Embed một text, trả về float[] vector.
- * gemini-embedding-001 hỗ trợ task_type để tối ưu quality:
- *   RETRIEVAL_DOCUMENT  – khi embed chunk lưu vào DB
- *   RETRIEVAL_QUERY     – khi embed query lúc search
- */
 export async function embedText(text, taskType = "RETRIEVAL_QUERY") {
   const model  = genai.getGenerativeModel({ model: EMBED_MODEL });
   const result = await model.embedContent({
@@ -37,7 +18,6 @@ export async function embedText(text, taskType = "RETRIEVAL_QUERY") {
 }
 
 export async function embedBatch(texts, taskType = "RETRIEVAL_DOCUMENT") {
-  // Gemini embedding không có batch API → parallel nhưng limit concurrency
   const CONCURRENCY = 5;
   const results     = [];
   for (let i = 0; i < texts.length; i += CONCURRENCY) {
@@ -47,8 +27,6 @@ export async function embedBatch(texts, taskType = "RETRIEVAL_DOCUMENT") {
   }
   return results;
 }
-
-// ─── Math helpers ─────────────────────────────────────────────────────────────
 
 function cosineSim(a, b) {
   let dot = 0, na = 0, nb = 0;
@@ -73,12 +51,10 @@ function bm25Score(queryTokens, docText, avgDocLen = 120, k1 = 1.5, b = 0.75) {
   return score;
 }
 
-// Reciprocal Rank Fusion
 function rrfScore(rankVec, rankBm25, k = 60) {
   return 1 / (k + rankVec + 1) + 1 / (k + rankBm25 + 1);
 }
 
-// ─── Query Expansion ──────────────────────────────────────────────────────────
 
 async function expandQuery(question) {
   try {
@@ -96,8 +72,6 @@ Return JSON only: {"variants": ["variant1", "variant2"]}`;
     return [question];
   }
 }
-
-// ─── MMR Reranking ────────────────────────────────────────────────────────────
 
 function mmrRerank(queryVec, candidatesWithVec, topK, lambda = 0.5) {
   const selected   = [];
@@ -121,106 +95,55 @@ function mmrRerank(queryVec, candidatesWithVec, topK, lambda = 0.5) {
   return selected;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  HybridRetriever  – main export
-// ═══════════════════════════════════════════════════════════════════════════════
-
 export class HybridRetriever {
-  constructor(mongoUri) {
-    this.mongoUri = mongoUri;
-    this._client  = null;
-  }
-
-  async _getCollection() {
-    if (!this._client) {
-      this._client = new MongoClient(this.mongoUri);
-      await this._client.connect();
+    constructor(mongoUri) {
+        this.client = new MongoClient(mongoUri);
     }
-    return this._client.db(MONGO_DB).collection(MONGO_COLL);
-  }
 
-  /**
-   * Main retrieval method
-   * @param {string}   question
-   * @param {string}   mindmapId
-   * @param {object}   opts  { topK=6, scoreThreshold=0.25, useMMR=true, expandQuery=true }
-   * @returns {Array}  [{text, score, pageNum?, topic?}]
-   */
-  async retrieve(question, mindmapId, opts = {}) {
-    const { topK = 6 } = opts;
-    const coll = await this._getCollection();
-    
-    const queryVec = await embedText(question, "RETRIEVAL_QUERY");
+    async retrieve(question, mindmapId, { topK = 5 }) {
+        const db = this.client.db(process.env.MONGO_DB);
+        const coll = db.collection(process.env.MONGO_COLL);
+        const queryVec = await embedText(question, "RETRIEVAL_QUERY");
 
-    const pipeline = [
-        {
-            $vectorSearch: {
-                index: "vector_index",
-                path: "embedding",
-                queryVector: queryVec,
-                numCandidates: 100,
-                limit: 50,
-                filter: { mindmapId: mindmapId }
+        // Atlas Search Hybrid Pipeline
+        const pipeline = [
+            {
+                $vectorSearch: {
+                    index: "vector_index",
+                    path: "embedding",
+                    queryVector: queryVec,
+                    numCandidates: 50,
+                    limit: 15,
+                    filter: { mindmapId }
+                }
+            },
+            {
+                $project: {
+                    text: 1,
+                    pageNum: 1,
+                    score: { $meta: "vectorSearchScore" },
+                    embedding: 1
+                }
             }
-        },
-        {
-            $addFields: { searchType: "vector" }
-        },
-        {
-            $unionWith: {
-                coll: "pdfchunk",
-                pipeline: [
-                    {
-                        $search: {
-                            index: "default",
-                            compound: {
-                                must: [
-                                    { text: { query: question, path: "text" } },
-                                    { equals: { value: mindmapId, path: "mindmapId" } }
-                                ]
-                            }
-                        }
-                    },
-                    { $limit: 50 },
-                    { $addFields: { searchType: "keyword" } }
-                ]
-            }
-        },
-        {
-            $group: {
-                _id: "$_id",
-                text: { $first: "$text" },
-                pageNum: { $first: "$pageNum" },
-                vectorScore: { $max: { $meta: "vectorSearchScore" } },
-                keywordScore: { $max: { $meta: "searchScore" } },
-                embedding: { $first: "$embedding" }
-            }
+        ];
+
+        const results = await coll.aggregate(pipeline).toArray();
+        
+        // MMR Reranking đơn giản để tránh trùng ý trong 1 nhánh
+        const final = [];
+        for (const res of results) {
+            if (final.length >= topK) break;
+            const isTooSimilar = final.some(f => this.cosineSim(f.embedding, res.embedding) > 0.85);
+            if (!isTooSimilar) final.push(res);
         }
-    ];
-
-    const rawResults = await coll.aggregate(pipeline).toArray();
-
-    const candidates = rawResults.map(r => ({
-        ...r,
-        vector: r.embedding,
-        combinedScore: (r.vectorScore || 0) + (r.keywordScore || 0)
-    }));
-
-    candidates.sort((a, b) => b.combinedScore - a.combinedScore);
-
-    const final = mmrRerank(queryVec, candidates.slice(0, 20), topK);
-
-    return final.map(s => ({
-        text: s.text,
-        pageNum: s.pageNum,
-        score: s.combinedScore
-    }));
-}
-
-  async close() {
-    if (this._client) {
-      await this._client.close();
-      this._client = null;
+        return final;
     }
-  }
+
+    cosineSim(a, b) {
+        let dot = 0, na = 0, nb = 0;
+        for (let i = 0; i < a.length; i++) {
+            dot += a[i] * b[i]; na += a[i]**2; nb += b[i]**2;
+        }
+        return dot / (Math.sqrt(na * nb) + 1e-10);
+    }
 }
