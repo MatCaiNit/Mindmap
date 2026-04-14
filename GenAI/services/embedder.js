@@ -4,37 +4,53 @@ import PDFChunk from '../models/PDFChunk.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMBED_MODEL = "gemini-embedding-001";
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const EMBED_MODEL = "gemini-embedding-2-preview";
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
 const MONGO_DB = process.env.MONGO_DB || "mindmap";
 const MONGO_COLL = process.env.MONGO_COLL || "pdfchunks";
 const CONCURRENCY = 5;
 
-export async function embedText(text, taskType = "RETRIEVAL_DOCUMENT") {
-  const model = genai.getGenerativeModel({ model: EMBED_MODEL });
-  const result = await model.embedContent({
-    content: { parts: [{ text }] },
-    taskType,
-  });
-  return result.embedding.values;  // float32[]
+// Hàm nhúng 1 đoạn text lẻ (Giữ lại để dùng cho tính năng Chat/Suggest)
+export async function embedText(text, taskType = 'RETRIEVAL_DOCUMENT') {
+    // Nếu lỗi 404 vẫn lặp lại với text-embedding-004, hãy đổi tên model ở đây về 'gemini-embedding-2-preview'
+    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' });
+    const result = await model.embedContent({
+        content: { role: 'user', parts: [{ text }] },
+        taskType: taskType,
+    });
+    return result.embedding.values;
 }
 
+// Hàm BATCH MỚI: Gửi hàng chục chunk trong 1 request duy nhất!
+export async function embedBatch(texts, taskType = 'RETRIEVAL_DOCUMENT') {
+    // Sử dụng model nhúng bản mới nhất
+    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' }); 
+    
+    // Đóng gói mảng text theo chuẩn của hàm batchEmbedContents
+    const requests = texts.map(text => ({
+        content: { role: 'user', parts: [{ text }] },
+        taskType: taskType,
+    }));
 
-export async function embedBatch(texts, taskType = "RETRIEVAL_DOCUMENT") {
-  const results = new Array(texts.length);
-
-  for (let i = 0; i < texts.length; i += CONCURRENCY) {
-    const batch = texts.slice(i, i + CONCURRENCY);
-    const vectors = await Promise.all(batch.map(t => embedText(t, taskType)));
-    vectors.forEach((v, j) => { results[i + j] = v; });
-
-    if (i + CONCURRENCY < texts.length) {
-      await new Promise(r => setTimeout(r, 200));
+    try {
+        // TUYỆT ĐỐI KHÔNG DÙNG Promise.all Ở ĐÂY NỮA
+        // Hàm này gom tất cả text vào 1 API call, tiết kiệm 99% Quota!
+        const result = await model.batchEmbedContents({ requests });
+        return result.embeddings.map(e => e.values);
+    } catch (error) {
+        console.error("[Embedder] Lỗi batchEmbedContents:", error.message);
+        
+        // Nếu dính lỗi 404 do thư viện cũ, ta fallback tạm về model cũ
+        if (error.status === 404) {
+            console.log("[Embedder] Model mới bị 404, fallback về gemini-embedding-2-preview...");
+            const fallbackModel = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' });
+            const fallbackResult = await fallbackModel.batchEmbedContents({ requests });
+            return fallbackResult.embeddings.map(e => e.values);
+        }
+        
+        throw error;
     }
-  }
-
-  return results;
 }
 
 

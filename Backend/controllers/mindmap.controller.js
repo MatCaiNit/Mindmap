@@ -51,11 +51,11 @@ export async function createMindmap(req, res) {
       collaborators: []
     });
 
-    console.log('✅ Mindmap created:', mm._id);
+    console.log(' Mindmap created:', mm._id);
 
     // Apply template if provided
     if (template && template.structure) {
-      console.log('🎨 Applying template...');
+      console.log(' Applying template...');
 
       try {
         const templateSnapshot = applyTemplateToYDoc(template);
@@ -65,7 +65,7 @@ export async function createMindmap(req, res) {
           mm.snapshot = templateSnapshot;
           await mm.save();
 
-          console.log('✅ Snapshot saved to Mindmap');
+          console.log(' Snapshot saved to Mindmap');
 
           // Save as initial version
           await Version.create({
@@ -87,10 +87,10 @@ export async function createMindmap(req, res) {
             size: templateSnapshot.length
           });
 
-          console.log('✅ Initial version created');
+          console.log(' Initial version created');
         }
       } catch (templateErr) {
-        console.error('❌ Template application failed:', templateErr);
+        console.error(' Template application failed:', templateErr);
         // Continue even if template fails - user gets blank mindmap
       }
     }
@@ -109,7 +109,7 @@ export async function createMindmap(req, res) {
 
     res.status(201).json({ ok: true, mindmap: mm });
   } catch (err) {
-    console.error('❌ Create mindmap error:', err);
+    console.error(' Create mindmap error:', err);
     res.status(500).json({ message: err.message });
   }
 }
@@ -226,11 +226,11 @@ export const saveRealtimeSnapshot = async (req, res) => {
     mindmap.snapshot = Buffer.from(snapshot.encodedState, 'base64');
     await mindmap.save();
 
-    console.log(`✅ Auto-snapshot saved for ${ydocId} (${size} bytes)`);
+    console.log(` Auto-snapshot saved for ${ydocId} (${size} bytes)`);
 
     res.json({ ok: true });
   } catch (err) {
-    console.error('❌ saveRealtimeSnapshot error:', err);
+    console.error(' saveRealtimeSnapshot error:', err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -243,7 +243,7 @@ export const getRealtimeSnapshot = async (req, res) => {
     if (!mindmap) return res.status(404).json({ message: 'Mindmap not found' });
 
     if (mindmap.snapshot) {
-      console.log(`📦 Returning snapshot from Mindmap.snapshot (${mindmap.snapshot.length} bytes)`);
+      console.log(` Returning snapshot from Mindmap.snapshot (${mindmap.snapshot.length} bytes)`);
 
       const snapshot = {
         schemaVersion: 1,
@@ -263,15 +263,15 @@ export const getRealtimeSnapshot = async (req, res) => {
       .sort({ createdAt: -1 });
 
     if (!version) {
-      console.log(`⚠️  No snapshot found for ${ydocId}`);
+      console.log(`  No snapshot found for ${ydocId}`);
       return res.status(404).json({ message: 'No snapshot found' });
     }
 
-    console.log(`📦 Returning snapshot from Version collection`);
+    console.log(` Returning snapshot from Version collection`);
     res.json({ snapshot: version.snapshot });
 
   } catch (err) {
-    console.error('❌ getRealtimeSnapshot error:', err);
+    console.error(' getRealtimeSnapshot error:', err);
     res.status(500).json({ message: err.message });
   }
 };
@@ -302,7 +302,7 @@ export async function verifyMindmapAccess(req, res) {
     const ydocId = req.params.id;
     const authHeader = req.headers.authorization;
 
-    console.log('🔐 verifyMindmapAccess called');
+    console.log(' verifyMindmapAccess called');
     console.log('   ydocId:', ydocId);
     console.log('   Authorization:', authHeader ? 'Present' : 'Missing');
 
@@ -312,26 +312,26 @@ export async function verifyMindmapAccess(req, res) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
         userId = decoded.id;
-        console.log('   ✅ User ID from token:', userId);
+        console.log('    User ID from token:', userId);
       } catch (err) {
-        console.error('   ❌ JWT verification failed:', err.message);
+        console.error('    JWT verification failed:', err.message);
         return res.json({ hasAccess: false });
       }
     }
 
     if (!userId) {
-      console.log('   ❌ No userId found');
+      console.log('    No userId found');
       return res.json({ hasAccess: false });
     }
 
     const mindmap = await Mindmap.findOne({ ydocId }).lean();
 
     if (!mindmap) {
-      console.log('   ❌ Mindmap not found for ydocId:', ydocId);
+      console.log('    Mindmap not found for ydocId:', ydocId);
       return res.json({ hasAccess: false });
     }
 
-    console.log('   ✅ Mindmap found:', mindmap._id);
+    console.log('    Mindmap found:', mindmap._id);
 
     const role = await checkMindmapAccess(userId, mindmap._id.toString(), 'read');
 
@@ -345,7 +345,7 @@ export async function verifyMindmapAccess(req, res) {
       user: { id: userId }
     });
   } catch (err) {
-    console.error('❌ verifyMindmapAccess error:', err);
+    console.error(' verifyMindmapAccess error:', err);
     res.status(500).json({ hasAccess: false });
   }
 }
@@ -408,7 +408,7 @@ export async function generateFromPdf(req, res) {
       form,
       {
         headers: form.getHeaders(),
-        timeout: 120000, // 2 phút — PDF lớn mất thời gian embed
+        timeout: 300000, // 2 phút — PDF lớn mất thời gian embed
       }
     )
 

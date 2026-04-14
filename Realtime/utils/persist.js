@@ -14,7 +14,7 @@ const lastSaveTime = new Map(); //  Track lần save cuối
 module.exports.persistence = {
   async bindState(docName, ydoc) {
     console.log('\n========================================');
-    console.log('📥 BIND STATE (Load from Backend)');
+    console.log(' BIND STATE (Load from Backend)');
     console.log('========================================');
     console.log('Document:', docName);
     
@@ -29,7 +29,7 @@ module.exports.persistence = {
 
       const snapshot = res.data.snapshot;
       
-      console.log('✅ Snapshot received:');
+      console.log(' Snapshot received:');
       console.log('   Schema version:', snapshot.schemaVersion);
       console.log('   Encoded state length:', snapshot.encodedState?.length || 0);
       console.log('   Meta:', snapshot.meta);
@@ -41,7 +41,7 @@ module.exports.persistence = {
         const previewDoc = new Y.Doc();
         Y.applyUpdate(previewDoc, update);
         
-        console.log('   📊 SNAPSHOT CONTENT:');
+        console.log('    SNAPSHOT CONTENT:');
         console.log('      Nodes:', previewDoc.getMap('nodes').size);
         previewDoc.getMap('nodes').forEach((value, key) => {
           console.log(`         ${key}: ${value.label}`);
@@ -51,24 +51,24 @@ module.exports.persistence = {
         // Apply to actual doc
         Y.applyUpdate(ydoc, update);
         
-        console.log('✅ Applied to Y.Doc');
+        console.log(' Applied to Y.Doc');
         console.log('   Final Nodes:', ydoc.getMap('nodes').size);
         console.log('   Final Edges:', ydoc.getArray('edges').length);
       }
       
-      // 🔥 Setup auto-save on document changes
+      //  Setup auto-save on document changes
       this.setupAutoSave(docName, ydoc);
       
       console.log('========================================\n');
       
     } catch (err) {
       if (err.response?.status === 404) {
-        console.log('⚠️ No snapshot found - starting with empty doc');
+        console.log(' No snapshot found - starting with empty doc');
       } else {
-        console.error('❌ Failed to load snapshot:', err.message);
+        console.error(' Failed to load snapshot:', err.message);
       }
       
-      // 🔥 Still setup auto-save even if load fails
+      //  Still setup auto-save even if load fails
       this.setupAutoSave(docName, ydoc);
       
       console.log('========================================\n');
@@ -89,7 +89,7 @@ module.exports.persistence = {
       
       const timer = setTimeout(() => {
         this.writeState(docName, ydoc).catch(err => {
-          console.error('❌ Auto-save failed:', err.message);
+          console.error(' Auto-save failed:', err.message);
         });
         saveTimers.delete(docName);
       }, AUTOSAVE_INTERVAL);
@@ -104,12 +104,12 @@ module.exports.persistence = {
 
     ydoc.on('update', updateHandler);
 
-    console.log('✅ Auto-save enabled (every 3s after changes)');
+    console.log(' Auto-save enabled (every 3s after changes)');
   },
 
   async writeState(docName, ydoc) {
     console.log('\n========================================');
-    console.log('💾 WRITE STATE (Save to Backend)');
+    console.log(' WRITE STATE (Save to Backend)');
     console.log('========================================');
     console.log('Document:', docName);
     
@@ -126,7 +126,7 @@ module.exports.persistence = {
     const edges = ydoc.getArray('edges');
     
     if (nodes.size === 0) {
-      console.log('⚠️ Skipping save - empty document');
+      console.log(' Skipping save - empty document');
       console.log('========================================\n');
       return;
     }
@@ -141,7 +141,7 @@ module.exports.persistence = {
     console.log('   Nodes:', nodes.size);
     console.log('   Edges:', edges.length);
     
-    console.log('   📊 NODE DATA:');
+    console.log('    NODE DATA:');
     nodes.forEach((value, key) => {
       console.log(`      ${key}: ${value.label || '(empty)'}`);
     });
@@ -159,12 +159,12 @@ module.exports.persistence = {
       // Cập nhật thời gian save
       lastSaveTime.set(docName, now);
       
-      console.log('✅ Saved to backend');
+      console.log(' Saved to backend');
       console.log('   Response:', response.data);
       console.log('   Time since last save:', now - lastSave + 'ms');
       console.log('========================================\n');
     } catch (err) {
-      console.error('❌ Failed to save:', err.message);
+      console.error(' Failed to save:', err.message);
       if (err.response) {
         console.error('   Status:', err.response.status);
         console.error('   Data:', err.response.data);
@@ -178,7 +178,7 @@ module.exports.persistence = {
     if (saveTimers.has(docName)) {
       clearTimeout(saveTimers.get(docName));
       saveTimers.delete(docName);
-      console.log(`🧹 Cleared auto-save timer for ${docName}`);
+      console.log(` Cleared auto-save timer for ${docName}`);
     }
     
     // Xóa tracking time

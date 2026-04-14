@@ -11,17 +11,17 @@ const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:1234'
  */
 export async function createYjsProvider(ydocId, token) {
   console.log('\n========================================')
-  console.log('🔌 CREATE YJS PROVIDER')
+  console.log(' CREATE YJS PROVIDER')
   console.log('========================================')
   console.log('Document ID:', ydocId)
   console.log('Mode: WebSocket ONLY (no IndexedDB)')
   
   // Create Y.Doc
   const ydoc = new Y.Doc()
-  console.log('✅ Y.Doc created')
+  console.log(' Y.Doc created')
   
   // Create WebSocket provider ONLY
-  console.log('🌐 Creating WebSocket provider...')
+  console.log(' Creating WebSocket provider...')
   const wsProvider = new WebsocketProvider(
     WS_URL,
     ydocId,
@@ -40,25 +40,25 @@ export async function createYjsProvider(ydocId, token) {
   })
 
   wsProvider.on('sync', (isSynced) => {
-    console.log(`🔄 WebSocket Sync: ${isSynced}`)
+    console.log(` WebSocket Sync: ${isSynced}`)
     if (isSynced) {
       const nodes = ydoc.getMap('nodes')
       const edges = ydoc.getArray('edges')
-      console.log(`   📊 Synced state: ${nodes.size} nodes, ${edges.length} edges`)
+      console.log(`    Synced state: ${nodes.size} nodes, ${edges.length} edges`)
     }
   })
 
   wsProvider.on('connection-error', ({ error }) => {
-    console.error('❌ WebSocket Error:', error)
+    console.error(' WebSocket Error:', error)
   })
 
   wsProvider.on('connection-close', ({ event }) => {
-    console.log('🔌 WebSocket Closed:', event?.code, event?.reason || '(no reason)')
+    console.log(' WebSocket Closed:', event?.code, event?.reason || '(no reason)')
   })
 
   const awareness = wsProvider.awareness
 
-  console.log('✅ Provider created')
+  console.log(' Provider created')
   console.log('========================================\n')
 
   return {
@@ -66,7 +66,7 @@ export async function createYjsProvider(ydocId, token) {
     wsProvider,
     awareness,
     destroy: () => {
-      console.log('🔌 Destroying provider:', ydocId)
+      console.log(' Destroying provider:', ydocId)
       wsProvider.destroy()
     }
   }
@@ -76,6 +76,6 @@ export async function createYjsProvider(ydocId, token) {
  * Helper function - no longer needed but kept for compatibility
  */
 export async function clearIndexedDB(ydocId) {
-  console.log('ℹ️  IndexedDB not used, nothing to clear')
+  console.log(' IndexedDB not used, nothing to clear')
   return Promise.resolve()
 }

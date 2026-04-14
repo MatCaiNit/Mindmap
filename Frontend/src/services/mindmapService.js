@@ -16,7 +16,7 @@ export const mindmapService = {
   },
 
   async create(title, description = '', template = null) {
-    console.log('📤 Creating mindmap:', { title, hasTemplate: !!template });
+    console.log(' Creating mindmap:', { title, hasTemplate: !!template });
     
     const payload = { 
       title, 
@@ -36,7 +36,7 @@ export const mindmapService = {
     }
     
     const response = await api.post('/mindmaps', payload);
-    console.log('✅ Mindmap created:', response.data.mindmap._id);
+    console.log(' Mindmap created:', response.data.mindmap._id);
     
     return response.data.mindmap;
   },

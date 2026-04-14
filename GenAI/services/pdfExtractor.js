@@ -1,11 +1,15 @@
+// GenAI/services/pdfExtractor.js
 import pdfParse from 'pdf-parse';
 
 export async function extractTextFromPDF(buffer) {
     const pagesData = [];
     const render_page = async function(pageData) {
         const textContent = await pageData.getTextContent();
-        const text = textContent.items.map(item => item.str).join(' ');
-        const cleanedText = text.replace(/\s+/g, ' ').trim();
+        // Giữ lại dấu xuống dòng để phân biệt các đoạn văn (paragraph) và tiêu đề
+        const text = textContent.items.map(item => item.str).join('\n');
+        
+        // Làm sạch: gom nhiều khoảng trắng/xuống dòng thừa thành 1 hoặc 2
+        const cleanedText = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
         pagesData.push({ pageNum: pageData.pageNumber, text: cleanedText });
         return cleanedText;
     };
@@ -13,131 +17,97 @@ export async function extractTextFromPDF(buffer) {
     return { pagesData };
 }
 
-export function chunkText(pagesData, { maxChunkSize = 1000, overlap = 200 } = {}) {
+export function analyzeStructure(pagesData) {
+    const sampleText = pagesData.slice(0, 10).map(p => p.text).join('\n');
+    
+    // 1. Check Mục lục (TOC)
+    const tocPattern = /(mục lục|table of contents|contents|danh mục)/i;
+    const hasTOC = tocPattern.test(sampleText);
+
+    // 2. Check Tiêu đề (Headings) - Bắt nhiều format hơn
+    // Mẫu: 1. / 1.1 / Chương 1 / Phần 1 / Bài 1 / CHỮ IN HOA TOÀN BỘ (ngắn)
+    const lines = sampleText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const headingRegex = /^(CHƯƠNG\s+\d+|PHẦN\s+[IVX]+|BÀI\s+\d+|[IVX]+\.|[1-9]+\.\d*)\b/i;
+    
+    let headingCount = 0;
+    lines.forEach(line => {
+        if (headingRegex.test(line) && line.length < 100) headingCount++;
+        // Bắt các dòng in hoa toàn bộ, độ dài ngắn (khả năng là tiêu đề)
+        else if (line === line.toUpperCase() && line.length > 5 && line.length < 80) headingCount++;
+    });
+
+    let docType = "UNSTRUCTURED";
+    if (hasTOC) docType = "TOC";
+    else if (headingCount >= 4) docType = "HEADINGS";
+
+    return {
+        docType,
+        isStructured: docType !== "UNSTRUCTURED",
+        recommendation: docType === "UNSTRUCTURED" ? "SEMANTIC_CHUNK" : "STRUCTURE_CHUNK"
+    };
+}
+
+export function chunkText(pagesData, { maxChunkSize = 1500, overlap = 300 } = {}) {
+    // Dành cho Unstructured: Chunk theo ĐOẠN VĂN (Paragraph) thay vì cắt ngang câu
     const chunks = [];
     let globalChunkIndex = 0;
 
     for (const page of pagesData) {
-        const sentences = page.text.match(/[^.!?\n]+[.!?\n]+/g) || [page.text];
+        // Tách theo xuống dòng kép (hoặc đơn) để lấy đoạn văn
+        const paragraphs = page.text.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
         let currentChunk = "";
 
-        for (let i = 0; i < sentences.length; i++) {
-            const sentence = sentences[i].trim();
-            if ((currentChunk.length + sentence.length) > maxChunkSize && currentChunk.length > 0) {
+        for (const para of paragraphs) {
+            if ((currentChunk.length + para.length) > maxChunkSize && currentChunk.length > 0) {
                 chunks.push({
                     pageNum: page.pageNum,
                     chunkIndex: globalChunkIndex++,
                     text: currentChunk.trim()
                 });
-                currentChunk = currentChunk.slice(-overlap) + " " + sentence;
+                // Overlap: Giữ lại một phần đoạn trước đó
+                currentChunk = currentChunk.slice(-overlap) + "\n" + para;
             } else {
-                currentChunk += (currentChunk ? " " : "") + sentence;
+                currentChunk += (currentChunk ? "\n" : "") + para;
             }
         }
-        if (currentChunk) {
+        if (currentChunk.trim()) {
             chunks.push({ pageNum: page.pageNum, chunkIndex: globalChunkIndex++, text: currentChunk.trim() });
         }
     }
     return chunks;
 }
 
-export function groupChunksToParts(chunks, chunkSize = 15) {
-    const parts = [];
-    for (let i = 0; i < chunks.length; i += chunkSize) {
-        parts.push(chunks.slice(i, i + chunkSize));
-    }
-    return parts;
-}
-
-export function analyzeStructure(pagesData) {
-    // Tìm các từ khóa báo hiệu Mục lục
-    const tocPattern = /(mục lục|content|table of contents|1\.|1\.1)/i;
-    // Tìm các dòng in hoa ngắn (Khả năng cao là Headings)
-    const headings = pagesData
-        .slice(0, 10)
-        .flatMap(p => p.text.split('. '))
-        .filter(sentence => sentence.length < 60 && sentence === sentence.toUpperCase());
-
-    const hasTOC = pagesData.slice(0, 5).some(p => tocPattern.test(p.text));
-    
-    return {
-        hasTOC: hasTOC,
-        headings: headings, // Trả về mảng rỗng nếu không có, giúp không bị lỗi .length
-        isStructured: hasTOC || headings.length >= 3,
-        recommendation: (hasTOC || headings.length >= 3) ? "CHAPTER_BASED" : "SEMANTIC_WINDOW"
-    };
-}
-
 export function chunkByStructure(pagesData, structureInfo) {
+    // Gom nhóm theo cấu trúc (Chương/Phần/Tiêu đề in hoa)
     const chunks = [];
     let currentChunkText = "";
     let globalChunkIndex = 0;
     let currentPage = 1;
 
-    // Regex nhận diện Tiêu đề (Headings) chuẩn Việt Nam:
-    // Bắt các mẫu: "CHƯƠNG 1", "PHẦN I", "I.", "1.", "1.1", "1.1.1"
-    const headingRegex = /^(CHƯƠNG\s+\d+|PHẦN\s+[IVX]+|[IVX]+\.|[1-9]+\.\d*)\b/i;
+    const headingRegex = /^(CHƯƠNG\s+\d+|PHẦN\s+[IVX]+|BÀI\s+\d+|[IVX]+\.|[1-9]+\.\d*)\b/i;
 
     for (const page of pagesData) {
         currentPage = page.pageNum;
-        
-        // Tách trang thành các câu/dòng dựa trên dấu câu hoặc xuống dòng
-        const sentences = page.text.match(/[^.!?\n]+[.!?\n]+/g) || [page.text];
+        const lines = page.text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-        for (let i = 0; i < sentences.length; i++) {
-            const sentence = sentences[i].trim();
-            if (!sentence) continue;
-
-            // KIỂM TRA: Câu này có phải là Tiêu đề không?
-            // Điều kiện: Khớp Regex và độ dài ngắn (< 150 ký tự) để tránh bắt nhầm đoạn văn
-            const isHeading = headingRegex.test(sentence) && sentence.length < 150;
+        for (const line of lines) {
+            const isHeading = (headingRegex.test(line) || (line === line.toUpperCase() && line.length > 5)) && line.length < 100;
 
             if (isHeading) {
-                // Nếu tìm thấy Tiêu đề mới -> Đóng gói "Chương" cũ lại thành Chunk
                 if (currentChunkText.trim().length > 0) {
-                    // Nếu Chương cũ quá dài (ví dụ > 1200 ký tự), phải tự động cắt nhỏ nó ra (Sub-chunking)
-                    const subChunks = subChunkLongText(currentChunkText, currentPage, globalChunkIndex);
-                    chunks.push(...subChunks);
-                    globalChunkIndex += subChunks.length;
+                    chunks.push({ pageNum: currentPage, chunkIndex: globalChunkIndex++, text: currentChunkText.trim() });
                 }
-                
-                // Mở đầu một Chunk mới với Tiêu đề vừa tìm được
-                currentChunkText = sentence;
+                // Đánh dấu Markdown ảo để LLM dễ nhận diện
+                currentChunkText = `## ${line}\n`; 
             } else {
-                // Gom nội dung vào Chương hiện tại
-                currentChunkText += (currentChunkText ? " " : "") + sentence;
+                currentChunkText += line + " ";
             }
         }
     }
 
-    // Đóng gói đoạn text cuối cùng của cuốn sách
     if (currentChunkText.trim().length > 0) {
-        const subChunks = subChunkLongText(currentChunkText, currentPage, globalChunkIndex);
-        chunks.push(...subChunks);
+        chunks.push({ pageNum: currentPage, chunkIndex: globalChunkIndex++, text: currentChunkText.trim() });
     }
 
     return chunks;
-}
-
-// Hàm phụ trợ: Cắt nhỏ nội dung nếu một Chương quá dài (tránh vỡ Context Window của AI)
-function subChunkLongText(text, pageNum, startIndex, maxLen = 1200, overlap = 200) {
-    if (text.length <= maxLen) {
-        return [{ pageNum, chunkIndex: startIndex, text: text.trim() }];
-    }
-
-    const results = [];
-    let currentIndex = 0;
-    let localIdx = 0;
-
-    while (currentIndex < text.length) {
-        let chunkStr = text.slice(currentIndex, currentIndex + maxLen);
-        results.push({
-            pageNum: pageNum, 
-            chunkIndex: startIndex + localIdx,
-            text: chunkStr.trim()
-        });
-        currentIndex += maxLen - overlap;
-        localIdx++;
-    }
-    return results;
 }

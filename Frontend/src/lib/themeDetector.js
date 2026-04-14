@@ -12,13 +12,13 @@ export function detectTheme(yNodes) {
   // Search for any node with themeMetadata
   for (const [nodeId, nodeData] of yNodes.entries()) {
     if (nodeData.themeMetadata) {
-      console.log('🎨 Theme detected from node:', nodeId);
+      console.log(' Theme detected from node:', nodeId);
       console.log('   Theme:', nodeData.themeMetadata.themeName || 'Unknown');
       return MINDMAP_THEMES[nodeData.themeMetadata.themeId] || null;
     }
   }
   
-  console.log('⚠️  No theme found in existing nodes');
+  console.log('  No theme found in existing nodes');
   return null;
 }
 
@@ -114,25 +114,25 @@ export function applyThemeToNode(nodeId, parentId, yNodes) {
   const existingNode = yNodes.get(nodeId);
 
     if (existingNode?.themeMetadata?.themeId === theme.id) {
-    return {}; // ⛔ ĐÃ APPLY → KHÔNG APPLY LẠI
+    return {}; //  ĐÃ APPLY → KHÔNG APPLY LẠI
     }
 
     if (!themeId) {
-    console.log('ℹ️  No theme detected, using default styling');
+    console.log('  No theme detected, using default styling');
     return {};
     }
 
     const theme = MINDMAP_THEMES[themeId];
 
     if (!theme) {
-    console.warn('⚠️ Theme not found in registry:', themeId);
+    console.warn(' Theme not found in registry:', themeId);
     return {};
     }
   
   // 2. Calculate level for new node
   const level = parentId ? calculateNodeLevel(parentId, yNodes) + 1 : 0;
   
-  console.log('🎨 Applying theme to new node:');
+  console.log(' Applying theme to new node:');
   console.log('   Node ID:', nodeId);
   console.log('   Level:', level);
   console.log('   Theme:', theme.id);

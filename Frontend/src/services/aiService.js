@@ -21,7 +21,7 @@ export const aiService = {
             onProgress(Math.round((evt.loaded * 100) / evt.total))
           }
         },
-        timeout: 180_000,
+        timeout: 600_000,
       }
     )
     return data

@@ -46,12 +46,12 @@ export default function LoginPage() {
       // credentialResponse.credential is the ID TOKEN (JWT)
       const data = await googleAuthService.loginWithGoogle(credentialResponse.credential)
       
-      console.log('✅ Backend response:', data)
+      console.log(' Backend response:', data)
       
       setAuth(data.user, data.accessToken, data.refreshToken)
       navigate('/dashboard')
     } catch (err) {
-      console.error('❌ Google login error:', err)
+      console.error(' Google login error:', err)
       setError(err.response?.data?.message || 'Google login failed. Please try again.')
     } finally {
       setLoading(false)
@@ -60,7 +60,7 @@ export default function LoginPage() {
 
   // Google OAuth login - Error handler
   const handleGoogleError = () => {
-    console.error('❌ Google OAuth error')
+    console.error(' Google OAuth error')
     setError('Google login failed. Please try again.')
   }
 

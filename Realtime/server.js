@@ -94,7 +94,7 @@ async function handleBroadcastRestore(req, res) {
       try {
         await persistence.writeState(ydocId, ydoc)
       } catch (persistErr) {
-        console.warn('⚠️ Persist failed:', persistErr.message)
+        console.warn(' Persist failed:', persistErr.message)
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -108,7 +108,7 @@ async function handleBroadcastRestore(req, res) {
       }))
 
     } catch (err) {
-      console.error('❌ BROADCAST RESTORE ERROR:', err)
+      console.error(' BROADCAST RESTORE ERROR:', err)
       sendError(res, 500, 'Internal error: ' + err.message)
     }
   })
@@ -131,7 +131,7 @@ async function handleGetSnapshot(req, res) {
       try {
         await persistence.bindState(ydocId, ydoc)
       } catch (e) {
-        console.log('⚠️ Persistence load failed:', e.message)
+        console.log(' Persistence load failed:', e.message)
       }
     }
 
@@ -149,12 +149,12 @@ async function handleGetSnapshot(req, res) {
     }))
 
   } catch (err) {
-    console.error('❌ Get snapshot error:', err)
+    console.error(' Get snapshot error:', err)
     sendError(res, 500, err.message)
   }
 }
 
-// 🔥 CRITICAL FIX: Setup persistence khi client connect
+//  CRITICAL FIX: Setup persistence khi client connect
 function setupWSConnectionWithTracking(ws, req, options) {
   const docName = options.docName
   
@@ -163,11 +163,11 @@ function setupWSConnectionWithTracking(ws, req, options) {
   const room = mapUtils.docs.get(docName)
   if (room) {
     activeDocs.set(docName, room)
-    console.log(`📡 CONNECTED: ${docName} (${room.conns?.size || 0} total clients)`)
+    console.log(` CONNECTED: ${docName} (${room.conns?.size || 0} total clients)`)
     
-    // 🔥 FIX: Setup auto-save khi client đầu tiên connect
+    // Setup auto-save khi client đầu tiên connect
     if (room.conns?.size === 1 && !room._persistenceSetup) {
-      console.log('🔧 Setting up persistence for first client...')
+      console.log(' Setting up persistence for first client...')
       
       persistence.bindState(docName, room)
         .then(() => {
@@ -188,7 +188,7 @@ function setupWSConnectionWithTracking(ws, req, options) {
       
       // Force save nếu là client cuối
       if (room.conns?.size === 1) {
-        console.log('💾 FORCE SAVE (last client disconnecting)...')
+        console.log(' FORCE SAVE (last client disconnecting)...')
         try {
           await persistence.writeState(docName, room)
           console.log('  Final save completed')
@@ -243,7 +243,7 @@ function sendError(res, status, msg) {
 
 server.listen(CONFIG.PORT, () => {
   console.log('\n========================================')
-  console.log('🚀 Realtime Server Started')
+  console.log(' Realtime Server Started')
   console.log('========================================')
   console.log('   URL:', `ws://localhost:${CONFIG.PORT}`)
   console.log('   Backend:', CONFIG.BACKEND_URL)

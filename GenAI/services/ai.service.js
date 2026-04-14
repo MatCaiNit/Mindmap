@@ -11,7 +11,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite' 
 const TOP_K = 5
-
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 function parseJSON(raw) {
     const clean = raw.replace(/```json|```/g, '').trim()
     try { return JSON.parse(clean) } catch (_) {
@@ -40,138 +40,161 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId) {
     const structureInfo = analyzeStructure(pagesData);
     let isStructured = structureInfo.isStructured;
     let rawChunks = [];
+    
     if (isStructured) {
-        console.log("[AI] Tài liệu CÓ CẤU TRÚC (Phát hiện Mục lục / Tiêu đề).");
+        console.log(`[AI] Tài liệu CÓ CẤU TRÚC: [${structureInfo.docType}]`);
         rawChunks = chunkByStructure(pagesData, structureInfo);
     } else {
-        console.log("[AI] Tài liệu KHÔNG CẤU TRÚC.");
-        rawChunks = chunkText(pagesData, { maxChunkSize: 1000, overlap: 200 });
+        console.log("[AI] Tài liệu KHÔNG CẤU TRÚC (Plain Text).");
+        rawChunks = chunkText(pagesData, { maxChunkSize: 1500, overlap: 300 });
     }
 
-    
-    const BATCH = 20;
+    // Embed & Lưu Database (Phục vụ cho tính năng RAG Suggest/Chat sau này)
+    // Code nhúng của bạn giữ nguyên
+    const BATCH = 100; // Giảm xuống 15 chunk mỗi lần gửi
     const embeddings = [];
+    
+    console.log(`[AI] Bắt đầu nhúng ${rawChunks.length} chunks...`);
     for (let i = 0; i < rawChunks.length; i += BATCH) {
         const batch = rawChunks.slice(i, i + BATCH).map(c => c.text);
-        const vecs = await embedBatch(batch, 'RETRIEVAL_DOCUMENT');
-        embeddings.push(...vecs);
-    }
-
-    await PDFChunk.deleteMany({ mindmapId });
-    const saved = await PDFChunk.insertMany(
-        rawChunks.map((c, idx) => ({
-            mindmapId,
-            text:       c.text,
-            pageNum:    c.pageNum,
-            chunkIndex: idx,
-            embedding:  embeddings[idx] || [],
-        }))
-    );
-    console.log(`[AI]  Stored ${saved.length} chunks`);
-
-    const MAX_CHUNKS_FOR_PROMPT = 15;
-    const MAX_CHUNK_IN_PROMPT = 800;
-    let selectedChunks = [];
-
-    if (saved.length <= MAX_CHUNKS_FOR_PROMPT) {
-        selectedChunks = saved;
-    } else {
-        const step = saved.length / MAX_CHUNKS_FOR_PROMPT;
-        for (let i = 0; i < MAX_CHUNKS_FOR_PROMPT; i++) {
-            const index = Math.floor(i * step);
-            if (saved[index]) selectedChunks.push(saved[index]);
+        
+        try {
+            const vecs = await embedBatch(batch, 'RETRIEVAL_DOCUMENT');
+            embeddings.push(...vecs);
+            console.log(`[AI]  Đã nhúng xong batch ${i / BATCH + 1}`);
+            
+            // Delay để tránh Rate Limit (100 req/min của Free Tier)
+            // Lấy 15 req mỗi batch -> 1 phút gửi được ~6 batch (90 req) -> Đợi 10s/batch là an toàn
+            if (i + BATCH < rawChunks.length) {
+                await sleep(10000); // Nghỉ 10 giây
+            }
+        } catch (error) {
+            console.error(`[AI] Lỗi khi nhúng batch ${i / BATCH + 1}:`, error.message);
+            // Nếu vẫn dính 429, đợi hẳn 35s (như log yêu cầu) rồi cho chạy lại batch này
+            if (error.status === 429) {
+                console.log("[AI] Dính Rate Limit, nghỉ 35 giây rồi thử lại...");
+                await sleep(35000);
+                i -= BATCH; // Lùi index lại để retry batch này ở vòng lặp sau
+            } else {
+                throw error; // Lỗi khác thì quăng ra luôn
+            }
         }
     }
 
+    await PDFChunk.deleteMany({ mindmapId });
+    const saved = await PDFChunk.insertMany(rawChunks.map((c, idx) => ({
+        mindmapId, text: c.text, pageNum: c.pageNum, chunkIndex: idx, embedding: embeddings[idx] || []
+    })));
+    console.log(`[AI]  Stored ${saved.length} chunks successfully`);
+
+    // ==========================================
+    // CƠ CHẾ SINH MINDMAP CHI TIẾT (MAP-REDUCE NẾU QUÁ DÀI)
+    // ==========================================
     const model = await getAiModel(false);
     let mindmap;
 
-    if (isStructured) {
-        console.log("[AI] Routing to processStructuredFile...");
-        mindmap = await processStructuredFile(selectedChunks, filename, model);
+    // Thay vì drop text, gom nhóm tối đa để tận dụng context. 
+    // Nếu sách siêu dài (vd > 50 chunks to), chia làm nhiều phần để build, rồi ghép lại (Map-Reduce).
+    const MAX_CHUNKS_PER_PROMPT = 35; // Tùy vào limit token của model bạn xài (Flash/Pro)
+    
+    if (saved.length <= MAX_CHUNKS_PER_PROMPT) {
+        // Xử lý 1 lần (Single-pass)
+        mindmap = await generateDeepMindmap(saved, filename, model, structureInfo.docType);
     } else {
-        console.log("[AI] Routing to Strict Prompt Builder...");
-        const contextStr = selectedChunks
-            .map(c => `[${c.chunkIndex}|p${c.pageNum}] ${c.text.slice(0, MAX_CHUNK_IN_PROMPT)}`)
-            .join('\n---\n');
+        // Map-Reduce cho sách dài
+        console.log(`[AI] File dài (${saved.length} chunks) -> Kích hoạt Map-Reduce...`);
+        const parts = [];
+        for (let i = 0; i < saved.length; i += MAX_CHUNKS_PER_PROMPT) {
+            const partChunks = saved.slice(i, i + MAX_CHUNKS_PER_PROMPT);
+            const partMindmap = await generateDeepMindmap(partChunks, `${filename} - Phần ${i / MAX_CHUNKS_PER_PROMPT + 1}`, model, structureInfo.docType);
+            parts.push(partMindmap);
+        }
+        // Gộp các phần lại
+        mindmap = await stitchMindmaps(parts, filename, model);
+    }
 
-        const prompt = `You are an expert mindmap architect. Given these document excerpts (format: [chunk:N|page:P] text):
+    const rawPdfText = saved.map(c => c.text || "").join(' ');
+    let evaluationReport = { status: "Skipped", metrics: {} };
+    
+    try {
+        evaluationReport = calculateMetrics(mindmap, rawPdfText);
+        console.log("\n" + "=".repeat(30));
+        console.log("📊 BÁO CÁO CHẤT LƯỢNG MINDMAP");
+        console.table(evaluationReport.metrics);
+        console.log("Trạng thái:", evaluationReport.status);
+        console.log("=".repeat(30) + "\n");
+    } catch (e) {
+        console.log("[AI] Evaluation failed:", e.message);
+    }
 
+    return {
+        ok: true,
+        mindmap,
+        chunks: saved.map(c => ({ _id: c._id, text: c.text, pageNum: c.pageNum, chunkIndex: c.chunkIndex })),
+        meta: { totalChunks: saved.length }
+    };
+}
+
+// HÀM GENERATE LÕI - ÉP SÂU TỚI LEVEL 5
+async function generateDeepMindmap(chunks, filename, model, docType) {
+    const contextStr = chunks.map(c => `[Chunk:${c.chunkIndex}|Page:${c.pageNum}]\n${c.text}`).join('\n---\n');
+
+    const prompt = `Bạn là một AI chuyên trích xuất dữ liệu sâu (Deep Extraction) để tạo Mindmap giống hệ thống Xmind.
+Tài liệu này được phân loại là: ${docType}.
+Dữ liệu đầu vào:
 ${contextStr}
 
-Create a DEEP, comprehensive hierarchical mindmap JSON for the document "${filename}".
+YÊU CẦU BẮT BUỘC ĐỂ TẠO MINDMAP SIÊU CHI TIẾT:
+1. Độ sâu phân cấp (Depth): Phải đạt từ 5 đến 6 level. KHÔNG được dừng lại ở ý chung chung.
+   - Level 0: Tên file / Chủ đề chính
+   - Level 1 (Chương/Phần): Các nhánh lớn (vd: 1. Giới thiệu)
+   - Level 2 (Mục): Các chủ đề con (vd: 1.1. Lịch sử hình thành)
+   - Level 3 (Chi tiết): Các khái niệm, quy trình (vd: 1.1.1. Giai đoạn sơ khai)
+   - Level 4 (Con số/Sự kiện): Các fact cụ thể (vd: 1.1.1.1. Năm 1990 ra mắt phiên bản đầu)
+   - Level 5 (Lá - Tận cùng): Giải thích, trích dẫn, hoặc hậu quả (vd: 1.1.1.1.a. Tạo ra doanh thu 2 triệu USD).
+2. Tận dụng tối đa nội dung: Bóc tách MỌI định nghĩa, MỌI danh sách, MỌI con số và quy trình đưa vào level 4 và 5.
+3. Node "sourceChunk": Bắt buộc có ở mọi node (từ level 1 trở đi) để trace lại xem nó lấy từ Chunk nào.
 
-STRICT REQUIREMENTS:
-1. The tree MUST have AT LEAST 4 levels of depth (root=level0, branches=level1, sub-branches=level2, details=level3, specifics=level4)
-2. Root node: concise title (4-8 words max)
-3. Level 1 nodes (branches): short category names (2-4 words each), 4-6 branches
-4. Level 2 nodes (sub-branches): short sub-topic labels (2-5 words), 2-4 per branch
-5. Level 3 nodes (details): medium descriptions (5-12 words), 2-3 per sub-branch
-6. Level 4 nodes (leaf specifics): DETAILED explanations (10-25 words with facts, numbers, examples from the document). These are the most informative nodes.
-7. Each node MUST have "sourceChunk" (integer chunk index from above, or null if not from a specific chunk)
-8. Return ONLY valid JSON, no markdown, no explanation
-
-JSON schema (strictly follow this structure):
+TRẢ VỀ DUY NHẤT ĐỊNH DẠNG JSON (Không giải thích, không bọc text markdown):
 {
   "root": {
-    "text": "Concise Root Title",
+    "text": "${filename}",
     "sourceChunk": null,
     "children": [
       {
-        "text": "Branch Name",
+        "text": "[Level 1] Tên Chương/Nhánh",
         "sourceChunk": 0,
         "children": [
-          {
-            "text": "Sub-branch",
-            "sourceChunk": 1,
-            "children": [
-              {
-                "text": "Detail topic",
-                "sourceChunk": 2,
-                "children": [
-                  {
-                    "text": "Specific leaf with detailed explanation from document content here",
-                    "sourceChunk": 3,
-                    "children": []
-                  }
-                ]
-              }
-            ]
-          }
+           // ... Tiếp tục lồng sâu xuống Level 2, 3, 4, 5...
         ]
       }
     ]
   }
 }`;
-        const aiResult = await model.generateContent(prompt); 
-        mindmap = parseJSON(aiResult.response.text());
-    }
 
-    const rawPdfText = saved.map(c => c.text || "").join(' ');
-    let evaluationReport = { status: "Skipped", metrics: {} };
-    // try {
-    //     evaluationReport = calculateMetrics(mindmap, rawPdfText);
-    //     console.log("\n" + "=".repeat(30));
-    //     console.log("📊 BÁO CÁO CHẤT LƯỢNG MINDMAP");
-    //     console.table(evaluationReport.metrics);
-    //     console.log("Trạng thái:", evaluationReport.status);
-    //     console.log("=".repeat(30) + "\n");
-    // } catch (e) {
-    //     console.log("[AI] Evaluation failed:", e.message);
-    // }
+    const res = await model.generateContent(prompt);
+    return parseJSON(res.response.text());
+}
 
-    return {
-        ok: true,
-        mindmap,
-        evaluation: evaluationReport,
-        chunks: saved.map(c => ({
-            _id:        c._id,
-            text:       c.text,
-            pageNum:    c.pageNum,
-            chunkIndex: c.chunkIndex,
-        })),
-        meta: { totalChunks: saved.length, usedChunks: selectedChunks.length },
-    };
+// HÀM GHÉP (REDUCE) NẾU FILE QUÁ DÀI
+async function stitchMindmaps(mindmapParts, filename, model) {
+    // Thu gọn JSON các phần để tiết kiệm token
+    const partsString = mindmapParts.map((m, i) => `Phần ${i+1}:\n${JSON.stringify(m)}`).join('\n\n');
+    
+    const prompt = `Tôi có các mảnh JSON của một Mindmap khổng lồ được trích xuất từ tài liệu "${filename}".
+Nhiệm vụ của bạn là HỢP NHẤT chúng thành một JSON Mindmap duy nhất.
+
+Quy tắc:
+1. Root node duy nhất là "${filename}".
+2. Gom các nhánh (Level 1) của các phần lại làm con của Root.
+3. TUYỆT ĐỐI GIỮ NGUYÊN cấu trúc chi tiết (Level 2, 3, 4, 5) của các nhánh con, KHÔNG ĐƯỢC tóm tắt hay cắt gọt đi. Giữ nguyên toàn bộ dữ liệu lá.
+4. Trả về đúng định dạng JSON chuẩn.
+
+Dữ liệu:
+${partsString}`;
+
+    const res = await model.generateContent(prompt);
+    return parseJSON(res.response.text());
 }
 
 async function processUnstructuredFile(chunks, filename, model) {

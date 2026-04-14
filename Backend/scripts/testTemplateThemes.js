@@ -55,7 +55,7 @@ function testTemplate(template) {
   const buffer = applyTemplateToYDoc(template);
   
   if (!buffer) {
-    console.error('❌ FAILED: No buffer returned');
+    console.error(' FAILED: No buffer returned');
     return false;
   }
   
@@ -66,18 +66,18 @@ function testTemplate(template) {
   const yNodes = ydoc.getMap('nodes');
   const yEdges = ydoc.getArray('edges');
   
-  console.log('\n📊 VERIFICATION:');
+  console.log('\n VERIFICATION:');
   console.log('   Nodes created:', yNodes.size);
   console.log('   Edges created:', yEdges.length);
   
   // Check root node
   const root = yNodes.get('root-node');
   if (!root) {
-    console.error('❌ FAILED: Root node not found');
+    console.error(' FAILED: Root node not found');
     return false;
   }
   
-  console.log('\n🔍 ROOT NODE INSPECTION:');
+  console.log('\n ROOT NODE INSPECTION:');
   console.log('   Label:', root.label);
   console.log('   Theme:', root.theme);
   console.log('   Color:', root.color);
@@ -88,7 +88,7 @@ function testTemplate(template) {
   
   // Verify theme is applied
   if (root.theme !== template.theme) {
-    console.error(`❌ FAILED: Theme mismatch (expected ${template.theme}, got ${root.theme})`);
+    console.error(` FAILED: Theme mismatch (expected ${template.theme}, got ${root.theme})`);
     return false;
   }
   
@@ -101,7 +101,7 @@ function testTemplate(template) {
   });
   
   if (firstChild) {
-    console.log('\n🔍 FIRST CHILD INSPECTION:');
+    console.log('\n FIRST CHILD INSPECTION:');
     console.log('   Label:', firstChild.label);
     console.log('   Theme:', firstChild.theme);
     console.log('   Color:', firstChild.color);
@@ -109,17 +109,17 @@ function testTemplate(template) {
     console.log('   BorderRadius:', firstChild.borderRadius);
     
     if (firstChild.theme !== template.theme) {
-      console.error(`❌ FAILED: Child theme mismatch`);
+      console.error(` FAILED: Child theme mismatch`);
       return false;
     }
   }
   
-  console.log('\n✅ TEST PASSED');
+  console.log('\n TEST PASSED');
   return true;
 }
 
 // Run tests
-console.log('\n🧪 THEME APPLICATION TEST SUITE');
+console.log('\n THEME APPLICATION TEST SUITE');
 console.log('='.repeat(60));
 
 let passed = 0;
@@ -133,17 +133,17 @@ testTemplates.forEach(template => {
       failed++;
     }
   } catch (err) {
-    console.error(`❌ ERROR: ${err.message}`);
+    console.error(` ERROR: ${err.message}`);
     failed++;
   }
 });
 
 console.log('\n' + '='.repeat(60));
-console.log('📊 TEST RESULTS');
+console.log(' TEST RESULTS');
 console.log('='.repeat(60));
-console.log(`✅ Passed: ${passed}`);
-console.log(`❌ Failed: ${failed}`);
-console.log(`📊 Total: ${passed + failed}`);
+console.log(` Passed: ${passed}`);
+console.log(` Failed: ${failed}`);
+console.log(` Total: ${passed + failed}`);
 console.log('='.repeat(60));
 
 process.exit(failed > 0 ? 1 : 0);
