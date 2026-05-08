@@ -1,114 +1,107 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MongoClient } from "mongodb";
-import PDFChunk from '../models/PDFChunk.js';
-import dotenv from 'dotenv';
-dotenv.config();
+// GenAI/services/embedder.js
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const EMBED_MODEL = "gemini-embedding-2-preview";
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017";
-const MONGO_DB = process.env.MONGO_DB || "mindmap";
-const MONGO_COLL = process.env.MONGO_COLL || "pdfchunks";
-const CONCURRENCY = 5;
+import PDFChunk from '../models/PDFChunk.js'
+import { MongoClient } from 'mongodb'
 
-// Hàm nhúng 1 đoạn text lẻ (Giữ lại để dùng cho tính năng Chat/Suggest)
-export async function embedText(text, taskType = 'RETRIEVAL_DOCUMENT') {
-    // Nếu lỗi 404 vẫn lặp lại với text-embedding-004, hãy đổi tên model ở đây về 'gemini-embedding-2-preview'
-    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' });
-    const result = await model.embedContent({
-        content: { role: 'user', parts: [{ text }] },
-        taskType: taskType,
-    });
-    return result.embedding.values;
+const OLLAMA_BASE  = process.env.OLLAMA_URL        || 'http://localhost:11434'
+const EMBED_MODEL  = process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text'
+const EMBED_DIM    = parseInt(process.env.EMBED_DIM  || '768')
+
+
+export async function embedBatch(texts) {
+  if (!texts || texts.length === 0) return []
+
+  const res = await fetch(`${OLLAMA_BASE}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: EMBED_MODEL,
+      input: texts,
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`[Embedder] /api/embed ${res.status}: ${err}`)
+  }
+
+  const data = await res.json()
+  if (!Array.isArray(data.embeddings)) {
+    throw new Error(`[Embedder] Bad response shape: ${JSON.stringify(data).slice(0, 200)}`)
+  }
+
+  return data.embeddings   // float[][]
 }
 
-// Hàm BATCH MỚI: Gửi hàng chục chunk trong 1 request duy nhất!
-export async function embedBatch(texts, taskType = 'RETRIEVAL_DOCUMENT') {
-    // Sử dụng model nhúng bản mới nhất
-    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' }); 
-    
-    // Đóng gói mảng text theo chuẩn của hàm batchEmbedContents
-    const requests = texts.map(text => ({
-        content: { role: 'user', parts: [{ text }] },
-        taskType: taskType,
-    }));
 
-    try {
-        // TUYỆT ĐỐI KHÔNG DÙNG Promise.all Ở ĐÂY NỮA
-        // Hàm này gom tất cả text vào 1 API call, tiết kiệm 99% Quota!
-        const result = await model.batchEmbedContents({ requests });
-        return result.embeddings.map(e => e.values);
-    } catch (error) {
-        console.error("[Embedder] Lỗi batchEmbedContents:", error.message);
-        
-        // Nếu dính lỗi 404 do thư viện cũ, ta fallback tạm về model cũ
-        if (error.status === 404) {
-            console.log("[Embedder] Model mới bị 404, fallback về gemini-embedding-2-preview...");
-            const fallbackModel = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' });
-            const fallbackResult = await fallbackModel.batchEmbedContents({ requests });
-            return fallbackResult.embeddings.map(e => e.values);
-        }
-        
-        throw error;
-    }
+export async function embedText(text) {
+  const vecs = await embedBatch([text])
+  return vecs[0]
+}
+
+// Safe chunked batch
+export async function embedBatchSafe(texts, batchSize = 64) {
+  const results = []
+  const total   = Math.ceil(texts.length / batchSize)
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize)
+    console.log(`[Embedder] Batch ${Math.floor(i / batchSize) + 1}/${total} (${batch.length} texts)...`)
+    results.push(...await embedBatch(batch))
+  }
+  return results
 }
 
 
 export async function embedAndStore(mindmapId, chunks, filename) {
-  if (!chunks || chunks.length === 0) return [];
+  if (!chunks?.length) return []
 
-  console.log(`[Embedder] Embedding ${chunks.length} chunks...`);
-  const texts = chunks.map(c => c.text);
-  const vectors = await embedBatch(texts, "RETRIEVAL_DOCUMENT");
+  console.log(`[Embedder] Embedding ${chunks.length} chunks...`)
+  const vectors = await embedBatchSafe(chunks.map(c => c.text))
 
-  await PDFChunk.deleteMany({ mindmapId }); 
+  await PDFChunk.deleteMany({ mindmapId })
 
   const docs = chunks.map((chunk, i) => ({
     mindmapId,
-    text: chunk.text,
-    embedding: vectors[i],
+    text:       chunk.text,
+    pageNum:    chunk.pageNum,
+    embedding:  vectors[i] ?? [],
     chunkIndex: chunk.chunkIndex ?? i,
-    metadata: {
-      filename: filename,
-      pageEstimate: chunk.pageNum
-    }
-  }));
+    metadata: { filename, pageEstimate: chunk.pageNum },
+  }))
 
-  // Lưu vào DB
-  const savedDocs = await PDFChunk.insertMany(docs);
-  console.log(`[Embedder] Stored ${savedDocs.length} chunks`);
-
-  return savedDocs; 
+  const saved = await PDFChunk.insertMany(docs)
+  console.log(`[Embedder] Stored ${saved.length} chunks`)
+  return saved
 }
 
+
 export async function createVectorIndex() {
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
+  const client = new MongoClient(process.env.MONGO_URI || 'mongodb://localhost:27017')
+  await client.connect()
   try {
-    const db = client.db(MONGO_DB);
-    await db.command({
-      createSearchIndexes: MONGO_COLL,
+    await client.db(process.env.MONGO_DB || 'mindmap').command({
+      createSearchIndexes: process.env.MONGO_COLL || 'pdfchunks',
       indexes: [{
-        name: "embedding_index",
-        type: "vectorSearch",
+        name: 'vector_index',
+        type: 'vectorSearch',
         definition: {
           fields: [{
-            type: "vector",
-            path: "embedding",
-            numDimensions: 768,
-            similarity: "cosine",
+            type:          'vector',
+            path:          'embedding',
+            numDimensions: EMBED_DIM,
+            similarity:    'cosine',
           }],
         },
       }],
-    });
-    console.log("[Embedder]  Vector search index created");
+    })
+    console.log('[Embedder] Vector index created')
   } catch (err) {
-    if (err.codeName === "IndexAlreadyExists") {
-      console.log("[Embedder] Index already exists, skipping.");
+    if (err.codeName === 'IndexAlreadyExists') {
+      console.log('[Embedder] Index already exists, skipping')
     } else {
-      throw err;
+      throw err
     }
   } finally {
-    await client.close();
+    await client.close()
   }
 }

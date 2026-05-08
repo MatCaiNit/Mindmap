@@ -160,7 +160,7 @@ export async function analyzeDocxFile(filePath) {
 // =====================================================================
 
 // Giả sử bạn có file "test.docx" nằm cùng thư mục với script này
-const testFilePath = "./xmind.docx"; 
+const testFilePath = "./PSO.docx"; 
 
 analyzeDocxFile(testFilePath).then(report => {
     if (report && report.status === "SUCCESS") {

@@ -1,5 +1,4 @@
 // GenAI/routes/ai.routes.js
-// Changes: + POST /ai/generate-from-prompt route
 
 import express from 'express'
 import multer  from 'multer'
@@ -7,35 +6,53 @@ import {
   generateFromPdfController,
   generateFromPromptController,
   generateMindmapController,
+  expandNodeController,
   suggestController,
   deleteChunksController,
+  generateStreamController,
 } from '../controllers/ai.controller.js'
 
 const router = express.Router()
 
+// Shared multer for PDF uploads (memory storage, 20MB max)
 const pdfUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    file.mimetype === 'application/pdf'
-      ? cb(null, true)
-      : cb(new Error('Only PDF files allowed'))
+    if (file.mimetype === 'application/pdf' || file.fieldname !== 'pdf') {
+      cb(null, true)
+    } else {
+      cb(new Error('Only PDF files allowed'))
+    }
   },
 })
 
-// Generate mindmap from PDF (RAG pipeline)
+// ── Core generation ─────────────────────────────────────────────────────────
+
+// POST /ai/generate-from-pdf
 router.post('/generate-from-pdf', pdfUpload.single('pdf'), generateFromPdfController)
 
-// NEW — Generate mindmap from text prompt (Gemini + optional search grounding)
+// POST /ai/generate-from-prompt
 router.post('/generate-from-prompt', generateFromPromptController)
 
-// Legacy alias — kept for backward compat
+// Legacy alias
 router.post('/generate-mindmap', generateMindmapController)
 
-// AI node suggestions
+// ── Progressive SSE stream ──────────────────────────────────────────────────
+// POST /ai/generate-stream
+// Body: FormData { pdf?: File, mindmapId: string, prompt?: string, mode?: string }
+// Response: text/event-stream
+router.post('/generate-stream', pdfUpload.single('pdf'), generateStreamController)
+
+// ── Utility ─────────────────────────────────────────────────────────────────
+
+// POST /ai/expand-node
+router.post('/expand-node', expandNodeController)
+
+// POST /ai/suggest
 router.post('/suggest', suggestController)
 
-// Cleanup PDF chunks for a mindmap
+// DELETE /ai/chunks/:mindmapId
 router.delete('/chunks/:mindmapId', deleteChunksController)
 
 export default router

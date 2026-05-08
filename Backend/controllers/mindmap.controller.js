@@ -408,7 +408,7 @@ export async function generateFromPdf(req, res) {
       form,
       {
         headers: form.getHeaders(),
-        timeout: 300000, // 2 phút — PDF lớn mất thời gian embed
+        timeout: 600000, // 2 phút — PDF lớn mất thời gian embed
       }
     )
 
@@ -548,4 +548,41 @@ export async function aiSuggest(req, res) {
     })
   }
 }
+
+export async function aiGenerateStream(req, res){
+    try {
+        const { id } = req.params; // mindmapId
+        const { prompt } = req.body;
+        
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Missing file' });
+        }
+
+        // Forward headers SSE cho client
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        const formData = new FormData();
+        formData.append('mindmapId', id);
+        formData.append('userPrompt', prompt || '');
+        formData.append('file', fs.createReadStream(req.file.path), req.file.originalname);
+
+        // Chú ý: responseType: 'stream'
+        const response = await axios.post(`${process.env.GENAI_SERVICE_URL}/api/ai/generate-stream`, formData, {
+            headers: {
+                ...formData.getHeaders()
+            },
+            responseType: 'stream'
+        });
+
+        // Pipe thẳng luồng stream từ GenAI xuống Frontend
+        response.data.pipe(res);
+
+    } catch (error) {
+        console.error('SSE Proxy Error:', error.message);
+        res.write(`data: ${JSON.stringify({ type: 'ERROR', data: { message: 'Proxy Error' } })}\n\n`);
+        res.end();
+    }
+};
  
