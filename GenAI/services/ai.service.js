@@ -17,7 +17,7 @@ import { detectLang } from '../utils/prompts.js'
 import dotenv from 'dotenv'
 dotenv.config()
 
-const GEN_MODEL = process.env.OLLAMA_GEN_MODEL || 'qwen2.5:3b'
+const GEN_MODEL = process.env.OLLAMA_GEN_MODEL || 'qwen3:8b'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -151,7 +151,7 @@ export async function generateFromPdf(fileBuffer, filename, mindmapId, userPromp
     console.log('  Coverage:', report.metrics.coverage)
     console.log('  Depth:', report.metrics.depth)
     console.log('  Total nodes:', report.metrics.total_nodes)
-  } catch (_) {}
+  } catch (_) { }
 
   const totalNodes = countNodes(mindmap.root)
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1)

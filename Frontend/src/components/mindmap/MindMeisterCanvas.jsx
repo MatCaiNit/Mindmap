@@ -14,7 +14,7 @@ import { useAwareness }    from '../../hooks/useAwareness'
 import MindMeisterNode     from './MindMeisterNode'
 import CustomEdge          from './CustomEdge'
 import FloatingToolbar     from './FloatingToolbar'
-import AIAssistantModal    from './AIAssistantModal'
+import AIAssistantModal, { GenerationProgressToast } from './AIAssistantModal'
 import Cursor              from './Cursor'
 import {
   calculateBalancedLayout,
@@ -26,7 +26,6 @@ import {
 import { PlusCircleIcon, SparklesIcon } from '@heroicons/react/24/solid'
 import { DocumentArrowUpIcon } from '@heroicons/react/24/outline'
 import PDFUploadModal from './PDFUploadModal'
-
 // ─── Theme configs (mirrors Backend/utils/templateToYjs.js) ──────────────────
 // Used when adding new child nodes so they inherit the parent's visual style.
 const THEME_CONFIGS = {
@@ -687,6 +686,7 @@ export default function MindMeisterCanvas({ ydoc, awareness, mindmap, isReadOnly
           onClose={() => setShowPDFModal(false)}
         />
       )}
+      <GenerationProgressToast />
     </div>
   );
 }
