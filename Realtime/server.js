@@ -241,13 +241,17 @@ function sendError(res, status, msg) {
   res.end(JSON.stringify({ ok: false, message: msg }))
 }
 
-server.listen(CONFIG.PORT, () => {
-  console.log('\n========================================')
-  console.log(' Realtime Server Started')
-  console.log('========================================')
-  console.log('   URL:', `ws://localhost:${CONFIG.PORT}`)
-  console.log('   Backend:', CONFIG.BACKEND_URL)
-  console.log('   Auto-save:', '3 seconds after changes')
-  console.log('   Force-save:', 'On last client disconnect')
-  console.log('========================================\n')
-})
+if (require.main === module) {
+  server.listen(CONFIG.PORT, () => {
+    console.log('\n========================================')
+    console.log(' Realtime Server Started')
+    console.log('========================================')
+    console.log('   URL:', `ws://localhost:${CONFIG.PORT}`)
+    console.log('   Backend:', CONFIG.BACKEND_URL)
+    console.log('   Auto-save:', '3 seconds after changes')
+    console.log('   Force-save:', 'On last client disconnect')
+    console.log('========================================\n')
+  })
+}
+
+module.exports = server

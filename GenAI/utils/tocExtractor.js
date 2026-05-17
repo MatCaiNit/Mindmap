@@ -1,18 +1,27 @@
-// GenAI/utils/tocExtractor.js — v7 (restored from user's working version)
-// Only change vs original v7: improve findBoundaries full-doc scan + author rejection
+// GenAI/utils/tocExtractor.js — v8 (streamLLM transport + 0-signal fast-skip)
+// Changes vs v7:
+//  · parseTOCPageWithLLM / extractTOCWithFullText now stream via shared
+//    streamLLM (../utils/llm.js) → toggle Ollama/Gemini by LLM_PROVIDER env.
+//  · extractTOCWithFullText returns null IMMEDIATELY when < 3 heading signals
+//    (structureless doc) — no wasted LLM round-trip. This is the fix for the
+//    "[TOC-AI] heading signals: 0 ... → Ollama" hang on prose PDFs.
+
+import { streamLLM } from "./llm.js";
 
 const OLLAMA_BASE = process.env.OLLAMA_URL       || 'http://localhost:11434'
 const GEN_MODEL   = process.env.OLLAMA_GEN_MODEL || 'qwen2.5:3b'
 
 function normalise(t) {
-  return (t || '').toLowerCase()
-    .replace(/^(\d+[\.\):]?\s*)+/, '').replace(/^[ivxIVX]+[\.\s]+/, '')
-    .replace(/\(p\.\s*\d+\)/g, '').replace(/\.{3,}\s*\d+\s*$/, '')
-    .replace(/\s{2,}/g, ' ').trim()
+  return (t || '').normalize('NFC').toLowerCase()
+    .replace(/^(\d+[\.\):]?\s*)+/, '')
+    .replace(/^[ivxIVX]+[\.\s]+/, '')
+    .replace(/\(p\.\s*\d+\)/g, '')
+    .replace(/\.{3,}\s*\d+\s*$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 const EXCLUDE_EXACT = new Set([
-  // Front/back matter — NOT content, skip in mindmap
   'abstract',
   'acknowledgements','acknowledgments','acknowledgement',
   'table of contents','contents','list of contents',
@@ -21,15 +30,12 @@ const EXCLUDE_EXACT = new Set([
   'references','bibliography','works cited',
   'appendix','appendices','annex',
   'preface','foreword','dedication','glossary','index',
-  // Vietnamese equivalents
   'tóm tắt','tóm tắt nội dung','lời cảm ơn','lời cám ơn',
   'mục lục','danh mục','bảng mục lục',
   'danh mục hình','danh mục bảng','danh mục từ viết tắt',
   'tài liệu tham khảo','phụ lục',
   'lời nói đầu','lời mở đầu','lời giới thiệu',
   'nhận xét của giáo viên',
-  // NOTE: 'summary','conclusions','discussion','challenges','introduction'
-  // are all valid CONTENT sections — do NOT add them here.
 ])
 
 const EXCLUDE_PATTERNS = [
@@ -50,7 +56,13 @@ const EXCLUDE_PATTERNS = [
   /^(email|tel|fax|www\.)/i,
   /^(page|trang)\s+\d+$/i,
   /^(IEEE|ACM|Springer|Elsevier|Nature|MDPI|Wiley)\s/i,
-]
+  /^(danh sách hình|danhsáchhình|danh sách bảng|danhsáchbảng)\b/i,
+  /^(danh mục (hình|bảng|ký hiệu|từ viết tắt|các từ))/i,
+  /^(list of (figures|tables|abbreviations|symbols))/i,
+  /^(lời cam đoan|lờicamđoan|lời cảm ơn|lờicảmơn)\s*$/i,
+  /^(tóm tắt|tómtắt|abstract)\s*$/i,
+  /^(danh mục|danhmục|danhsách)\s+/i,
+  ]
 
 function isExcluded(text) {
   const t = (text || '').trim()
@@ -58,26 +70,20 @@ function isExcluded(text) {
   if (t.split(/\s+/).length > 14) return true
   if (EXCLUDE_PATTERNS.some(p => p.test(t))) return true
   if (EXCLUDE_EXACT.has(normalise(t))) return true
+  if (/[a-zà-ỹ]\.$/.test(t) && t.split(/\s+/).length <= 6) return true
   return false
 }
 
 function cleanHeadingLine(text) {
   if (!text) return ''
   const t = text.trim()
-
-  // Fix: "IntroductionFor working out..." — PDF merges heading+body without space.
-  // Detect lowercase immediately followed by uppercase (no space in between).
-  // Only apply when line is suspiciously long AND split point is in heading range.
   if (t.length > 30) {
     const noSpaceIdx = t.search(/[a-zà-ỹ][A-ZÀ-Ỹ]/)
     if (noSpaceIdx !== -1 && noSpaceIdx > 4 && noSpaceIdx < 55) {
-      // noSpaceIdx points to the lowercase char; +1 includes it, cuts before uppercase
       return t.slice(0, noSpaceIdx + 1).trim()
     }
   }
-
   if (t.length <= 90) return t
-  // Fallback: cut at first sentence boundary (space + uppercase) after 8+ chars
   const m = t.match(/^(.{8,90}?[a-zà-ỹ])\s+[A-ZÀ-Ỹ]/)
   return m ? m[1].trim() : t.slice(0, 90).trim()
 }
@@ -112,7 +118,7 @@ function findBoundaries(pagesData) {
   }
   const FRONT_HEADINGS = [
     /^(abstract|tóm tắt|acknowledgements?|lời cảm ơn)/i,
-    /^(table of contents|mục lục|danh mục|list of)/i,
+    /^(table of contents|mục lục|danh mục|list of|contents|content)/i,
     /^(preface|foreword|lời nói đầu)/i,
   ]
   const FRONT_CUTOFF = Math.min(Math.ceil(total * 0.15), 8)
@@ -128,42 +134,17 @@ function findBoundaries(pagesData) {
   }
 }
 
-// ─── detectScheme: first-occurrence ordering ──────────────────────────────────
-// Each distinct label format is a "family". Whichever family appears first in
-// the TOC entries → Level 1, next family → Level 2, etc.
-//
-// Families (sorted by first-occurrence position, not predefined priority):
-//   'chapter'    → Chương 1, Chapter 1, Chap 1, Phần 1, Part 1
-//   'upper'      → A.  B.  C.  D.  E.
-//   'ROMAN'      → I.  II.  III.  IV.  V. ... (uppercase roman)
-//   'lower'      → a.  b.  c.  d.  e.
-//   'roman'      → i.  ii.  iii.  iv.  v. ... (lowercase roman)
-//   'arabic'     → 1.  2.  3.  4.
-//   'dotted'     → 1.1  1.2  2.1  (always child of 'arabic')
-//   'nolabel'    → "Title ........... 3"  (treated as L1)
-//   'sub'        → a.  b.  (same as 'lower', merged)
-//
-// Example — Báo cáo thực tập:
-//   A. (upper, first)  → L1
-//   I. (ROMAN, second) → L2
-//   1. (arabic, third) → L3
-//
-// Example — PSO paper:
-//   1. (arabic, first)  → L1
-//   1.1 (dotted, after) → L2
-
 function detectScheme(entries) {
-  // All distinct format families, in the order they first appear in entries
   const FAMILIES = [
     { name: 'chapter', test: e => e.type === 'chapter' || e.type === 'part' },
     { name: 'upper',   test: e => e.type === 'upper' },
     { name: 'ROMAN',   test: e => e.type === 'roman' },
+    { name: 'alphadot',test: e => e.type === 'alphadot' },
     { name: 'lower',   test: e => e.type === 'lower' || e.type === 'sub' },
     { name: 'roman',   test: e => e.type === 'lowerroman' },
     { name: 'arabic',  test: e => e.type === 'arabic' },
   ]
 
-  // Find first occurrence index for each family
   const order = FAMILIES
     .map(f => {
       const idx = entries.findIndex(e => f.test(e))
@@ -172,15 +153,29 @@ function detectScheme(entries) {
     .filter(f => f.idx !== -1)
     .sort((a, b) => a.idx - b.idx)
 
-  // Assign levels: first-occurring family = L1, next = L2, etc.
   const levelOf = {}
   order.forEach((f, i) => { levelOf[f.name] = i + 1 })
 
-  // dotted (1.1, 1.2) is always one level below arabic
-  const arabicLevel = levelOf['arabic'] ?? order.length + 1
   const maxNamedLevel = order.length
 
-  console.log('[TOC] Scheme:', order.map(f => `${f.name}→L${levelOf[f.name]}`).join(', '))
+  // The "base" level that dotted numbers (1.1, 2.2.1) hang under.
+  // If the doc has a real standalone arabic level (entries like "1", "2"),
+  // dotted sits just below it. But many theses use "Chương N" + "N.M" with
+  // NO standalone "N" entries — then `levelOf['arabic']` is undefined and the
+  // old fallback (order.length + 1) pushed 1.1 one level too deep, deleting a
+  // whole tier and collapsing the tree to flat chapters. In that case dotted
+  // must anchor to the top structural level (chapter/upper/roman = L1), so
+  // "1.1" → L2, "1.1.1" → L3.
+  const topStructLevel =
+    levelOf['chapter'] ?? levelOf['upper'] ?? levelOf['ROMAN'] ?? 1
+  const hasStandaloneArabic = levelOf['arabic'] != null
+  const arabicLevel = hasStandaloneArabic
+    ? levelOf['arabic']
+    : topStructLevel + 1
+  const dottedBase = hasStandaloneArabic ? levelOf['arabic'] : topStructLevel
+
+  console.log('[TOC] Scheme:', order.map(f => `${f.name}→L${levelOf[f.name]}`).join(', '),
+    `| dotted base L${dottedBase}`)
 
   return (e) => {
     if (e.type === 'chapter' || e.type === 'part')   return levelOf['chapter'] ?? 1
@@ -189,23 +184,25 @@ function detectScheme(entries) {
     if (e.type === 'lower' || e.type === 'sub')       return levelOf['lower']   ?? 2
     if (e.type === 'lowerroman')                      return levelOf['roman']   ?? 2
     if (e.type === 'arabic')                          return arabicLevel
-    if (e.type === 'dotted')                          return arabicLevel + e.dots  // 1.1=L+1, 1.1.1=L+2
-    if (e.type === 'nolabel')                         return 1   // no-label = top-level
+    // "1.1" (dots=1) → dottedBase+1 ; "1.1.1" (dots=2) → dottedBase+2
+    if (e.type === 'dotted')                          return dottedBase + e.dots
+    // "A.1" / "B.2" appendix sub-entry → one level below the letter tier
+    if (e.type === 'alphadot') {
+      const base = levelOf['upper'] ?? levelOf['chapter'] ?? 1
+      return base + e.dots
+    }
+    if (e.type === 'nolabel')                         return 1
     return maxNamedLevel + 1
   }
 }
 
-// adjustArabicLevels: fix edge case where arabic appears at wrong level
-// due to context (e.g., arabic used as L1 but immediately after a chapter entry)
 function adjustArabicLevels(entries) {
   for (let i = 1; i < entries.length; i++) {
     if (entries[i].type !== 'arabic') continue
-    // Find nearest non-arabic entry before this one
     let j = i - 1
     while (j >= 0 && (entries[j].type === 'arabic' || entries[j].type === 'dotted')) j--
     if (j >= 0) {
       const contextLevel = entries[j].level + 1
-      // Only correct if context suggests this arabic should be shallower
       if (contextLevel < entries[i].level)
         entries[i] = { ...entries[i], level: contextLevel }
     }
@@ -218,7 +215,6 @@ function buildTree(entries) {
   const minL = Math.min(...entries.map(e => e.level))
   const norm = entries.map(e => ({ ...e, level: e.level - minL + 1 }))
 
-  // Use a stack to track current path at each level
   const root = { children: [] }
   const stack = [{ node: root, level: 0 }]
 
@@ -231,7 +227,6 @@ function buildTree(entries) {
       children:  [],
     }
 
-    // Pop stack until we find the right parent level
     while (stack.length > 1 && stack[stack.length - 1].level >= e.level) {
       stack.pop()
     }
@@ -244,7 +239,6 @@ function buildTree(entries) {
   const chapters = root.children
   if (!chapters.length) return null
 
-  // Set pageEnd for each chapter
   for (let i = 0; i < chapters.length; i++) {
     chapters[i].pageEnd = i + 1 < chapters.length
       ? (chapters[i + 1].pageStart ?? 9999) - 1
@@ -257,27 +251,20 @@ function buildTree(entries) {
   return ok.length >= 2 ? ok : null
 }
 
-// ─── S1: Find TOC page → send raw text to LLM ───────────────────────────────
-// No regex parsing. Just find the page, grab its text, let LLM parse it.
-// LLM reads TOC pages perfectly regardless of format (A., I., 1., etc.)
-
 const TOC_PAGE_MARKERS = [
-  // Exact header line (whole line = TOC title)
   /^(mục lục|mụclục|table of contents|tableofcontents|contents|danh mục|nội dung)\s*$/i,
-  // Partial match at start of line
   /^(mục lục|table of contents|contents)\b/i,
-  // In-document "Contents" followed by TOC entries
   /^(Contents|CONTENTS|TABLE OF CONTENTS|MỤC LỤC)$/,
+  /^(?:mụclục|tableofcontents)\s*$/i,
+  /^(?:contents|nộidung)\s*$/i,
 ]
+const LIST_OF_X = /^(?:danh\s*(?:mục|sách)\s*(?:các\s*)?(?:hình|bảng|biểu(?:\s*đồ)?|sơ\s*đồ|đồ\s*thị|ảnh|từ\s*viết\s*tắt|chữ\s*viết\s*tắt|ký\s*hiệu|thuật\s*ngữ)|list\s+of\s+(?:figures?|tables?|charts?|abbreviations?|symbols?|illustrations?)|mục\s*lục\s+(?:hình|bảng))/i
 
-// Returns all lines from TOC page(s), or null if no TOC page found
 function findTOCPageText(pagesData) {
   let tocStart = -1
-  // Search in first 20% of document (not just first 15 pages)
   const searchLimit = Math.min(Math.max(15, Math.floor(pagesData.length * 0.20)), 30)
   for (let i = 0; i < Math.min(searchLimit, pagesData.length); i++) {
     const allLines = (pagesData[i].lines || []).map(l => l.text.trim()).filter(Boolean)
-    // Check first 8 lines of page (header might not be line 0 if there's a page number)
     if (allLines.slice(0, 8).some(l => TOC_PAGE_MARKERS.some(p => p.test(l)))) {
       tocStart = i; break
     }
@@ -287,25 +274,34 @@ function findTOCPageText(pagesData) {
   const skipPages = new Set()
   const tocLines  = []
 
-  // Collect all TOC pages — stop when we hit body content.
-  // A page is still TOC if it has entries with dots/page numbers.
-  // A page is body content if: most lines are long prose (>80 chars)
-  // and it has very few dot-separated entries.
   for (let pi = tocStart; pi < Math.min(tocStart + 15, pagesData.length); pi++) {
     const pageLines = (pagesData[pi].lines || []).map(l => l.text.trim()).filter(Boolean)
     if (!pageLines.length) continue
 
     if (pi > tocStart) {
-      // Count TOC-like lines (have dots/page number or short titles with labels)
-      const tocLike = pageLines.filter(l =>
-        /\.{3,}|\s{4,}\d+\s*$/.test(l) ||           // has dots or trailing page
-        /^(?:[A-Z]\.|[IVX]+\.|i{1,3}v?\.|\d+\.)/.test(l) // starts with label
+      const isListOfX = pageLines.slice(0, 8).some(l => LIST_OF_X.test(l.trim()))
+      if (isListOfX) {
+        console.log(`[TOC] S1: stopped at page index ${pi} (danh mục hình/bảng → end of TOC)`)
+        break
+      }
+      const codey = pageLines.filter(l =>
+        /^[\{\}\[\]]/.test(l.trim()) ||
+        /^"[\w_]+"\s*:/.test(l.trim()) ||
+        /[{}]\s*,?\s*$/.test(l.trim())
       ).length
-      const prose = pageLines.filter(l => l.length > 80 && !/\.{3,}/.test(l)).length
+      if (codey >= 3) {
+        console.log(`[TOC] S1: stopped at page index ${pi} (code/JSON detected)`)
+        break
+      }
 
-      // Stop if: less than 20% TOC-like AND more than 50% prose
-      if (tocLike < pageLines.length * 0.2 && prose > pageLines.length * 0.5) {
-        console.log(`[TOC] S1: stopped at page index ${pi} (body content detected)`)
+      // Dòng mục lục LUÔN mở đầu bằng nhãn cấu trúc: 1 / 1.1 / A. / I. /
+      // Chương N / Phần N. KHÔNG phụ thuộc dấu chấm dẫn hay số trang nên
+      // áp dụng cho MỌI kiểu mục lục (có chấm, không chấm, không số trang).
+      // Trang không còn dòng nào có nhãn → đã sang thân bài → dừng.
+      const LABEL_LINE = /^(?:\d{1,2}(?:\.\d{1,2})*[.\s)]|[A-Za-z][.)]\s|(?:chương|chapter|chap|phần|part|mục|bài)\s*[\dIVXivx]|X{0,3}(?:IX|IV|V?I{0,3})[.\s)])/i
+      const labeled = pageLines.filter(l => LABEL_LINE.test(l.trim())).length
+      if (labeled < Math.max(2, pageLines.length * 0.25)) {
+        console.log(`[TOC] S1: stopped at page index ${pi} (no structural labels → end of TOC)`)
         break
       }
     }
@@ -319,106 +315,105 @@ function findTOCPageText(pagesData) {
   return { lines: tocLines, text: tocLines.join('\n'), skipPages }
 }
 
-// ── JS TOC parser (no LLM) ────────────────────────────────────────────────────
-// Patterns for TOC entries. Matched in order — first match wins.
 const TOC_ENTRY_RE = [
-  // "1.2  Title ........ 12"  or  "1.2.3  Title ... 12"
-  /^(\d{1,2}(?:\.\d{1,2}){0,3})[\.\s]{1,3}(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
-  // "1.2  Title" (no page number)
-  /^(\d{1,2}(?:\.\d{1,2}){0,3})[\.\s]{1,3}(.{3,150})\s*$/,
-  // "Chương 1 - Title .... 4"
-  /^(?:chương|chapter|phần|part)\s+(\d+)\s*[-–—:\s.]*\s*(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/i,
-  // "Chương I: Title"
-  /^(?:chương|chapter|phần|part)\s+([IVXivx\d]+)\s*[-–—:\s.]*\s*(.{3,150})/i,
-  // "I.  Title .... 4"  (Roman upper)
-  /^(XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})\s*[.\s]+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
-  /^(XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})\s*[.\s]+(.{3,150})\s*$/,
-  // "i.  Title .... 4"  (Roman lower)
-  /^(xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})\s*[.\s]+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
-  /^(xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})\s*[.\s]+(.{3,150})\s*$/,
-  // "A.  Title .... 4"  (Uppercase letter — Vietnamese A, B, C, D, E sections)
-  /^([A-Z])\.\s+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
-  /^([A-Z])\.\s+(.{3,150})\s*$/,
-  // "a.  Title .... 4"  (Lowercase letter)
-  /^([a-z])\.\s+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
-  // "Title ......... 4"  (no label — e.g. "Lời nói đầu ..... 3")
-  /^()(.{5,150})(?:\.{5,}|\s{10,})\s*(\d{1,4})\s*$/,
-]
+    /^(\d{1,2}(?:\.\d{1,2}){0,3})[\.\s]{0,3}(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
+    /^(\d{1,2}(?:\.\d{1,2}){0,3})[\.\s]{0,3}(.{3,150})\s*$/,
+    /^(?:chương|chapter|phần|part)\s*(\d+)\s*[-–—:\s.]*\s*(.{10,150})\s+(\d{1,4})\s*$/i,
+    /^(?:chương|chapter|phần|part)\s*(\d+)\s*[-–—:\s.]*\s*(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/i,
+    /^(?:chương|chapter|phần|part)\s*([IVXivx\d]+)\s*[-–—:\s.]*\s*(.{3,150})/i,
+    /^(XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})\s*[.\s]+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
+    /^(XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})\s*[.\s]+(.{3,150})\s*$/,
+    /^(xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})\s*[.\s]+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
+    /^(xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})\s*[.\s]+(.{3,150})\s*$/,
+    /^([A-Z])\.\s+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
+    /^([A-Z])\.\s+(.{3,150})\s*$/,
+    /^([a-z])\.\s+(.{3,150})(?:\.{2,}|\s{4,})\s*(\d{1,4})\s*$/,
+    /^()(.{5,150})(?:\.{5,}|\s{10,})\s*(\d{1,4})\s*$/,
+  ]
 
 function parseTOCPageJS(tocResult, pagesData) {
   const { lines, skipPages } = tocResult
-
-  // ── Merge continuation lines ─────────────────────────────────────────────
-  // Long TOC titles wrap to next line in PDF, e.g.:
-  //   "1. Phát triển, thiết kế game để số hóa các bài tập, hình ảnh trong sách"
-  //   "thành các game có thể tương tác được.................... 4"   ← continuation
-  //
-  // A line is a CONTINUATION if it does NOT start with any known label format.
+  console.log(`\n🔴🔴🔴 parseTOCPageJS ĐANG CHẠY — ${lines.length} dòng thô`)
+  console.log('🔴 5 dòng đầu:', JSON.stringify(lines.slice(0, 5)))
+  const gluedDbg = lines.filter(l =>
+    /[A-Za-zÀ-ỹ]{15,}/.test((l||'').replace(/\.{2,}.*$/, '')) ||
+    /^\d+(?:\.\d+)*[A-Za-zÀ-ỹ]/.test((l||'').trim()) ||
+    /^(chương|chapter|phần|part)\d/i.test((l||'').trim())
+  ).length
+  console.log(`🔴 glued = ${gluedDbg}/${lines.length}`)
   const LABEL_START = /^(?:\d{1,2}(?:\.\d{1,2})*[\.\s]|[A-Za-z][\.]\s|(?:chương|chapter|chap|phần|part)\s+\d|(?:XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})\s*[.\s]|(?:xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})\s*[.\s])/i
 
   const merged = []
   for (const line of lines) {
     if (!line.trim()) continue
     const t = line.trim()
-    if (TOC_PAGE_MARKERS.some(p => p.test(t))) continue  // skip header line "Mục lục"
+    if (TOC_PAGE_MARKERS.some(p => p.test(t))) continue
 
-    // Is this a continuation of previous line?
-    // Key insight: the LABEL line comes first (no page/dots), the CONTINUATION
-    // line comes second (may or may not have dots+page).
-    // So: if PREVIOUS line has no page number yet AND current line doesn't
-    // start a new entry → it's a continuation.
     const prevLine = merged[merged.length - 1] ?? ''
     const prevHasPage = /\.{3,}\s*\d+\s*$|\s{4,}\d+\s*$|\d{1,4}\s*$/.test(prevLine)
     const isContinuation = merged.length > 0
-      && !prevHasPage                   // previous line incomplete (no page yet)
-      && !LABEL_START.test(t)           // current line not a new entry
+      && !prevHasPage
+      && !LABEL_START.test(t)
       && t.length > 3
       && !TOC_PAGE_MARKERS.some(p=>p.test(t))
-      && !t.match(/^[A-ZĐÀẢÃÁẠĂẮẶẰẲẴÂẤẬẦẨẪ]{3,}/u)  // not all-caps new heading
+      && !t.match(/^[A-ZĐÀẢÃÁẠĂẮẶẰẲẴÂẤẬẦẨẪ]{3,}/u)
 
     if (isContinuation) {
-      // Append to previous line with a space
       merged[merged.length - 1] = merged[merged.length - 1] + ' ' + t
     } else {
       merged.push(t)
     }
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
   const rawEntries = [], seen = new Set()
 
   for (const text of merged) {
     if (!text || TOC_PAGE_MARKERS.some(p => p.test(text))) continue
     if (text.length < 3 || text.length > 400) continue
-
+    if (/^[\{\}\[\]]/.test(text.trim())) continue
+    if (/^"[\w_]+"\s*:/.test(text.trim())) continue
+    if (/[{}]\s*,?\s*$/.test(text.trim()) && text.length < 60) continue
+    const matchText = text
+      .replace(/(?:\.\s*){3,}/g, ' .... ')
+      .replace(/(\.{2,})\s*(\d{1,4})\s*$/, '$1 $2')
     for (const re of TOC_ENTRY_RE) {
-      const m = text.match(re); if (!m) continue
+      const m = matchText.match(re); if (!m) continue
       const label    = (m[1] || '').trim()
       const rawTitle = (m[2] || '')
-        .replace(/\.{2,}[\s\d]*$/, '')
+        .replace(/\.{2,}\s*\d+\s*$/, '')
         .replace(/\s{4,}\d+\s*$/, '')
+        .replace(/\s+\d{1,3}\s*$/, '')
+        .replace(/\d{1,3}\s*$/, (match, offset, str) => {
+          const charBefore = str[offset - 1] || ''
+          return /[a-zà-ỹ\s]/.test(charBefore) ? '' : match
+        })
         .trim()
       const title = rawTitle || label
       if (title.length < 2 || isExcluded(title)) break
 
-      const n = normalise(title); if (seen.has(n)) break; seen.add(n)
+      const n = `${label}|${normalise(title)}`; if (seen.has(n)) break; seen.add(n)
 
-      const isChapter     = /^(chương|chapter|chap|phần|part)/i.test(text)
+      const isChapter     = /^(chương|chapter|chap|phần|part|appendix|phụ lục)/i.test(text)
       const isUpperRoman  = /^(XI{0,2}|X|IX|VI{0,3}|V|IV|I{1,3})$/.test(label) && label === label.toUpperCase() && label.length > 0
       const isLowerRoman  = /^(xi{0,2}|x|ix|vi{0,3}|v|iv|i{1,3})$/.test(label) && label === label.toLowerCase() && /[ivx]/.test(label)
       const isUpperLetter = /^[A-Z]$/.test(label) && !isUpperRoman
       const isLowerLetter = /^[a-z]$/.test(label) && !isLowerRoman
+      // Appendix-style sub-entry: "A.1", "B.2", "A.1.1" — a LETTER followed by
+      // a dotted number. Must NOT be treated as decimal dotted (1.1) because
+      // its parent is the appendix letter, a different tier.
+      const isAlphaDotSub = /^[A-Za-z]\.\d/.test(label)
       const isNoLabel     = label === ''
       const dots          = (label.match(/\./g) || []).length
 
-      const type = isChapter     ? 'chapter'
-                 : isUpperRoman  ? 'roman'        // I. II. III. (uppercase roman)
-                 : isLowerRoman  ? 'lowerroman'   // i. ii. iii. (lowercase roman)
-                 : isUpperLetter ? 'upper'         // A. B. C.
-                 : isLowerLetter ? 'lower'         // a. b. c.
-                 : isNoLabel     ? 'nolabel'
-                 : dots > 0      ? 'dotted'        // 1.1 1.2 2.1
-                 : 'arabic'                        // 1. 2. 3.
+      const type = isChapter      ? 'chapter'
+                 : isAlphaDotSub  ? 'alphadot'
+                 : isUpperRoman   ? 'roman'
+                 : isLowerRoman   ? 'lowerroman'
+                 : isUpperLetter  ? 'upper'
+                 : isLowerLetter  ? 'lower'
+                 : isNoLabel      ? 'nolabel'
+                 : dots > 0       ? 'dotted'
+                 : 'arabic'
 
       rawEntries.push({ label, title, type, dots, pageStart: m[3] ? parseInt(m[3]) : null })
       break
@@ -430,19 +425,22 @@ function parseTOCPageJS(tocResult, pagesData) {
     return null
   }
 
-  // Detect no-space PDF artifact: if >40% of entries have titles with no internal spaces
-  // and title is long → likely concatenated words (e.g. "BackgroundandMotivation")
   const noSpaceCount = rawEntries.filter(e => {
     const t = e.title.trim()
     return t.length > 12 && !t.includes(' ') && !/^[A-Za-z]$/.test(t)
   }).length
   if (noSpaceCount > rawEntries.length * 0.4) {
     console.log(`[TOC] S1-JS: ${noSpaceCount}/${rawEntries.length} entries look like no-space PDF artifacts → LLM`)
-    return null   // signals extractTOCBest to use LLM
+    return null
   }
-
-  const scheme  = detectScheme(rawEntries)
-  const entries = adjustArabicLevels(rawEntries.map(e => ({ ...e, level: scheme(e) })))
+  const labeledTitles = new Set(
+  rawEntries.filter(e => e.type !== 'nolabel').map(e => normalise(e.title))
+  )
+  const dedupedEntries = rawEntries.filter(e =>
+    e.type !== 'nolabel' || !labeledTitles.has(normalise(e.title))
+  )
+  const scheme  = detectScheme(dedupedEntries)
+  const entries = adjustArabicLevels(dedupedEntries.map(e => ({ ...e, level: scheme(e) })))
   const chapters = buildTree(entries)
   console.log(`[TOC] S1-JS: ${chapters?.length || 0} chapters, ${rawEntries.length} entries`)
   return chapters?.length >= 2
@@ -450,7 +448,7 @@ function parseTOCPageJS(tocResult, pagesData) {
     : null
 }
 
-// Parse TOC page text via LLM (fallback when JS parse fails)
+// Parse TOC page text via LLM (fallback when JS parse fails) — now via streamLLM
 async function parseTOCPageWithLLM(tocPageText, pagesData, lang = 'en') {
   const isVi = lang === 'vi'
   const prompt = isVi ? `/no_think
@@ -484,32 +482,16 @@ MARKDOWN TOC:
   const tm  = setTimeout(() => ctl.abort(), 60_000)
 
   try {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-      method:  'POST', signal: ctl.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: GEN_MODEL, prompt, stream: true,
-        options: { temperature: 0.05, num_ctx: 4096, num_predict: 2000, num_gpu: 99, num_thread: 4 },
-      }),
-    })
-    if (!res.ok) throw new Error(`Ollama ${res.status}`)
-    const rdr = res.body.getReader(), dec = new TextDecoder()
     let raw = ''
-    while (true) {
-      const { done, value } = await rdr.read(); if (done) break
-      for (const ln of dec.decode(value, { stream:true }).split('\n').filter(Boolean)) {
-        try { const o = JSON.parse(ln); if (o.thinking) continue; if (o.response) raw += o.response } catch(_) {}
-      }
-    }
+    for await (const piece of streamLLM(prompt, {
+      signal: ctl.signal, maxTokens: 2000, temperature: 0.05, numCtx: 4096,
+    })) raw += piece
     clearTimeout(tm)
-    // Prompt ends with "##" → model continues from there, so raw starts with " GIỚI THIỆU..."
-    // Prepend "##" so parseMarkdownTOC sees proper headings
+
     let md = ('## ' + raw)
       .replace(/<think>[\s\S]*?<\/think>/g, '')
       .replace(/<think>[\s\S]*/g, '')
       .trim()
-
-    // If model already output its own "##" (didn't continue our seed), avoid "## ## ..."
     md = md.replace(/^## ##\s+/, '## ').replace(/^##\s*##\s+/, '## ')
 
     console.log(`[TOC-AI] TOC page parsed: ${md.length} chars`)
@@ -526,43 +508,33 @@ MARKDOWN TOC:
 }
 
 export function extractTOCRobust(pagesData) {
-  // Synchronous: just detect if TOC page exists and return its raw text
   if (!pagesData?.length) return null
-  return findTOCPageText(pagesData)   // { text, skipPages } | null
+  return findTOCPageText(pagesData)
 }
 
-
 // ─── extractTOCWithFullText: heading signals + sampled content → LLM ────────
-// Early-version approach that produced accurate, complete TOCs.
-// Sends:
-//   1. Heading signals: bold/large/numbered lines from every page (structured)
-//   2. First ~10 pages full text (captures early structure)
-//   3. Evenly sampled snippets from rest of doc
-// Much cleaner than raw full-text — model focuses on heading signals.
 export async function extractTOCWithFullText(pagesData, options = {}) {
   const { lang = 'en', targetDepth = 3 } = options
   const totalPages = pagesData.length
 
-  // ── 1. Collect heading signals (bold/large/numbered lines across ALL pages) ──
   const headingLines = pagesData.flatMap(pg => {
     const bodyFont = pg.bodyFont || 11
     return (pg.lines || [])
       .filter(l => {
         const t = (l.text || '').trim()
         if (!t || t.length < 3 || t.length > 150) return false
-        if (/^[A-Z][a-z]+,\s+[A-Z]/.test(t)) return false   // author names
-        if (/^\[\d+\]/.test(t)) return false                  // references
+        if (/^[A-Z][a-z]+,\s+[A-Z]/.test(t)) return false
+        if (/^\[\d+\]/.test(t)) return false
         const isBold    = l.isBold === true
         const isBig     = (l.avgFont || 0) > bodyFont * 1.08
         const isNum     = /^\d{1,2}[\.\s]/.test(t)
         const isChap    = /^(chương|chapter|phần|part)\s+\d+/i.test(t)
         const isRoman   = /^[IVX]{1,5}[\.\s]/.test(t)
-        const isUpper   = /^[A-E]\.\s/.test(t)               // Vietnamese A. B. C.
+        const isUpper   = /^[A-E]\.\s/.test(t)
         return isBold || isBig || isNum || isChap || isRoman || isUpper
       })
       .map(l => `[p${pg.pageNum}] ${l.text.trim()}`)
   })
-  // Deduplicate: same text across multiple pages = running header → keep first only
   const seenHL = new Set()
   const uniqHeadings = headingLines.filter(line => {
     const key = line.replace(/^\[p\d+\]\s*/, '').toLowerCase().trim().slice(0, 50)
@@ -570,20 +542,26 @@ export async function extractTOCWithFullText(pagesData, options = {}) {
     seenHL.add(key); return true
   }).slice(0, 300)
 
-  // ── 2. First pages (full text, captures intro + structure) ──────────────────
+  // ── FAST-SKIP: structureless document ────────────────────────────────────
+  // < 3 heading signals → no real TOC to extract. The LLM call here always
+  // ends in parseMarkdownTOC returning null (wasted round-trip + the hang you
+  // saw on prose PDFs). Bail now; stream.generator's single-call handles it.
+  if (uniqHeadings.length < 3) {
+    console.log(`[TOC-AI] only ${uniqHeadings.length} heading signals → skip full-text LLM (structureless)`)
+    return null
+  }
+
   const firstPages = pagesData.slice(0, Math.min(10, pagesData.length))
   const firstText  = firstPages
     .map(p => `[p${p.pageNum}]\n${(p.text || '').slice(0, 600)}`)
     .join('\n\n')
 
-  // ── 3. Sampled snippets across full document ─────────────────────────────────
   const step = pagesData.length / Math.min(25, pagesData.length)
   const sampledText = Array.from({ length: Math.min(25, pagesData.length) }, (_, i) => {
     const pg = pagesData[Math.floor(i * step)]
     return pg ? `[p${pg.pageNum}] ${(pg.text || '').slice(0, 350)}` : ''
   }).filter(Boolean).join('\n\n')
 
-  // Estimate chapter count from heading signals for instruction
   const chapHints = uniqHeadings.filter(l =>
     /chương|chapter|^[A-E]\.\s/i.test(l.replace(/^\[p\d+\]\s*/,''))
   ).length
@@ -635,42 +613,15 @@ RULES:
 MARKDOWN TOC:
 ##`
 
-  console.log(`[TOC-AI] heading signals: ${uniqHeadings.length} | first: ${firstText.length}c | sampled: ${sampledText.length}c → Ollama...`)
+  console.log(`[TOC-AI] heading signals: ${uniqHeadings.length} | first: ${firstText.length}c | sampled: ${sampledText.length}c → LLM...`)
   const ctl = new AbortController()
   const tm  = setTimeout(() => ctl.abort(), 180_000)
 
   try {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-      method:  'POST',
-      signal:  ctl.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model:  GEN_MODEL,
-        prompt,
-        stream: true,
-        options: {
-          temperature: 0.05,
-          num_ctx:     16384,
-          num_predict: 4000,
-          num_gpu:     99,
-          num_thread:  4,
-        },
-      }),
-    })
-    if (!res.ok) throw new Error(`Ollama ${res.status}`)
-
-    const rdr = res.body.getReader(), dec = new TextDecoder()
     let raw = ''
-    while (true) {
-      const { done, value } = await rdr.read(); if (done) break
-      for (const ln of dec.decode(value, { stream:true }).split('\n').filter(Boolean)) {
-        try {
-          const o = JSON.parse(ln)
-          if (o.thinking) continue
-          if (o.response) raw += o.response
-        } catch (_) {}
-      }
-    }
+    for await (const piece of streamLLM(prompt, {
+      signal: ctl.signal, maxTokens: 4000, temperature: 0.05, numCtx: 16384,
+    })) raw += piece
     clearTimeout(tm)
 
     let md = ('## ' + raw)
@@ -694,25 +645,19 @@ MARKDOWN TOC:
   }
 }
 
-
 // ─── extractTOCBest: 3-path strategy ─────────────────────────────────────────
-// Path 1a: TOC page found → JS parse (instant, 0ms)
-// Path 1b: JS parse fails → LLM parse the TOC page text (fast, ~10-20s)
-// Path 2:  No TOC page → LLM full-text with heading signals (~30-60s)
 export async function extractTOCBest(pagesData, options = {}) {
   const { lang = 'en' } = options
 
   const tocPage = findTOCPageText(pagesData)
 
   if (tocPage) {
-    // Path 1a: JS parse (no LLM needed)
     const jsResult = parseTOCPageJS(tocPage, pagesData)
     if (jsResult?.chapters?.length >= 2) {
       console.log(`[TOC] S1-JS: ${jsResult.chapters.length} chapters ✅`)
       return jsResult
     }
 
-    // Path 1b: JS failed → send TOC page text to LLM
     console.log('[TOC] S1-JS failed → sending TOC page to LLM...')
     const llmResult = await parseTOCPageWithLLM(tocPage.text, pagesData, lang)
     if (llmResult?.chapters?.length >= 2) {
@@ -724,14 +669,12 @@ export async function extractTOCBest(pagesData, options = {}) {
     console.log('[TOC] No TOC page → full-text AI...')
   }
 
-  // Path 2: Full-text AI (heading signals + sampled content)
   const ai = await extractTOCWithFullText(pagesData, options)
   if (ai?.chapters?.length >= 2) return ai
 
   console.log('[TOC] All paths failed')
   return null
 }
-
 
 function parseMarkdownTOC(md) {
   const entries = []
@@ -751,7 +694,6 @@ function parseMarkdownTOC(md) {
   const minL = Math.min(...entries.map(e => e.level))
   return buildTree(entries.map(e => ({ ...e, level: e.level - minL + 1 })))
 }
-
 
 export function assignPageRanges(chapters, pagesData) {
   if(!chapters?.length||!pagesData?.length) return chapters||[]

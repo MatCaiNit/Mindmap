@@ -1,12 +1,7 @@
-// GenAI/controllers/ai.controller.js — v9
-// NEW: PDF buffer cache (pdfBufferCache) for source viewing
-// NEW: GET /ai/pdf/:mindmapId — serves cached PDF
-// NEW: GET /ai/pdf/:mindmapId/page-count — returns page count
-
 import {
   generateFromPdf, generateFromPrompt, expandNode, suggestNodes, deleteChunks,
 } from '../services/ai.service.js'
-import { streamMindmapGeneration }       from '../services/stream.generator.js'
+import { dumpTOC,streamMindmapGeneration }       from '../services/stream.generator.js'
 import { extractTextFromPDF }            from '../services/pdfExtractor.js'
 import { embedBatchSafe }                from '../services/embedder.js'
 import { hybridChunk }                   from '../services/chunkingStrategy.js'
@@ -14,9 +9,7 @@ import { extractTOCBest }                            from '../utils/tocExtractor
 import { detectLang }                    from '../utils/prompts.js'
 import PDFChunk                          from '../models/PDFChunk.js'
 
-// ─── PDF buffer cache ─────────────────────────────────────────────────────────
-// Stores the original PDF buffer per mindmapId for source page viewing.
-// Entries expire after 12 hours to avoid memory leaks.
+
 const pdfBufferCache = new Map()
 const PDF_CACHE_TTL  = 12 * 60 * 60 * 1000  // 12 hours
 
@@ -30,8 +23,7 @@ function cachePDF(mindmapId, buffer, filename) {
   console.log(`[PDFCache] Cached ${mindmapId} (${(buffer.length/1024).toFixed(0)}KB)`)
 }
 
-// ─── GET /ai/pdf/:mindmapId ───────────────────────────────────────────────────
-// Returns the cached PDF buffer so the frontend can render specific pages.
+
 export async function getPdfController(req, res) {
   const { mindmapId } = req.params
   const cached = pdfBufferCache.get(mindmapId)
@@ -48,8 +40,7 @@ export async function getPdfController(req, res) {
   res.send(cached.buffer)
 }
 
-// ─── GET /ai/pdf/:mindmapId/status ───────────────────────────────────────────
-// Check if PDF is cached (for frontend to decide whether to show source button)
+
 export async function getPdfStatusController(req, res) {
   const { mindmapId } = req.params
   const cached = pdfBufferCache.get(mindmapId)
@@ -62,7 +53,6 @@ export async function getPdfStatusController(req, res) {
   })
 }
 
-// ─── POST /ai/generate-from-pdf ───────────────────────────────────────────────
 export async function generateFromPdfController(req, res) {
   try {
     if (!req.file) return res.status(400).json({ error: 'Missing PDF file' })
@@ -78,7 +68,6 @@ export async function generateFromPdfController(req, res) {
   }
 }
 
-// ─── POST /ai/generate-from-prompt ────────────────────────────────────────────
 export async function generateFromPromptController(req, res) {
   try {
     const { prompt, text } = req.body
@@ -91,7 +80,6 @@ export async function generateFromPromptController(req, res) {
   }
 }
 
-// ─── POST /ai/generate-stream ─────────────────────────────────────────────────
 export async function generateStreamController(req, res) {
   res.setHeader('Content-Type',  'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -118,7 +106,6 @@ export async function generateStreamController(req, res) {
     let title       = userPrompt || 'Mindmap'
     let tocChapters = null
 
-    // ── PDF preprocessing ──────────────────────────────────────────────────
     if (req.file) {
       send({ type: 'status', message: 'Reading PDF...' })
 
@@ -133,7 +120,6 @@ export async function generateStreamController(req, res) {
       if (totalText < 150)
         return sendError('PDF appears to be scanned/image-based. Please use a text-based PDF.')
 
-      // ── Cache PDF buffer for source viewing ──────────────────────────────
       cachePDF(mindmapId, req.file.buffer, req.file.originalname || filename + '.pdf')
 
       const lang = detectLang(pages.map(p => p.text || '').join(''))
@@ -141,20 +127,20 @@ export async function generateStreamController(req, res) {
       const bestTOC = await extractTOCBest(pages, { lang, targetDepth: 4 })
       if (bestTOC?.chapters?.length >= 2) {
         tocChapters = bestTOC.chapters
+        const tagM = (ns) => { for (const n of ns || []) { n._tocMethod = bestTOC.method; tagM(n.children) } }
+        tagM(tocChapters)
         console.log(`[Controller] TOC via "${bestTOC.method}": ${tocChapters.length} chapters`)
+        dumpTOC(tocChapters, `TOC parsed via "${bestTOC.method}"`)
         send({ type: 'status', message: `↓ Structure: ${tocChapters.length} chapters (${bestTOC.method})` })
       }
 
-      // ── Chunking ─────────────────────────────────────────────────────────
       send({ type: 'status', message: '↓ Chunking...' })
       const rawChunks = hybridChunk(pages, tocChapters)
       console.log(`[Controller] ${rawChunks.length} chunks`)
 
-      // ── Embedding ────────────────────────────────────────────────────────
       send({ type: 'status', message: `↓ Embedding ${rawChunks.length} chunks...` })
       const embeddings = await embedBatchSafe(rawChunks.map(c => (c.text||'').slice(0,2000)), 64)
 
-      // ── Store chunks ──────────────────────────────────────────────────────
       await PDFChunk.deleteMany({ mindmapId })
       const saved = await PDFChunk.insertMany(
         rawChunks.map((c, i) => ({
@@ -169,7 +155,6 @@ export async function generateStreamController(req, res) {
       send({ type: 'status', message: `↓ ${savedChunks.length} chunks indexed` })
 
     } else {
-      // Load existing chunks from DB
       const existing = await PDFChunk.find({ mindmapId })
         .select('text pageNum chunkIndex sectionTitle embedding').lean()
       if (existing.length > 0) {
@@ -178,7 +163,6 @@ export async function generateStreamController(req, res) {
       }
     }
 
-    // ── Stream generation ─────────────────────────────────────────────────
     const stream = streamMindmapGeneration({
       title, pagesData, savedChunks, mindmapId, userPrompt, mode, tocChapters,
     })
@@ -194,7 +178,6 @@ export async function generateStreamController(req, res) {
   }
 }
 
-// ─── Other controllers ────────────────────────────────────────────────────────
 export async function expandNodeController(req, res) {
   try {
     const { nodeText, parentChain, mindmapId, lang } = req.body
@@ -214,7 +197,6 @@ export async function suggestController(req, res) {
 export async function deleteChunksController(req, res) {
   try {
     const count = await deleteChunks(req.params.mindmapId)
-    // Also evict from PDF cache
     pdfBufferCache.delete(req.params.mindmapId)
     res.json({ ok: true, deleted: count })
   } catch (err) { res.status(500).json({ error: err.message }) }

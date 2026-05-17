@@ -19,14 +19,19 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 // ─── Apply node event vào Yjs ─────────────────────────────────────────────────
 export function applyNodeEvent(nodePayload, yNodes) {
   const { id, ...rest } = nodePayload
+  const bareLabel  = rest.label || rest.text || 'Node'
+  const description = (rest.description || '').trim()
+  const full = description ? `${bareLabel} — ${description}` : bareLabel
   yNodes.set(id, {
-    label:     rest.label || rest.text || 'Node',
-    text:      rest.label || rest.text || 'Node',
+    label:     full,          // ← renderer reads this; now includes description
+    text:      full,
+    labelOnly: bareLabel,     // bare label kept separately if needed
+    description,
     position:  rest.position || { x: 0, y: 0 },
     parentId:  rest.parentId ?? null,
     level:     rest.level ?? 0,
     side:      rest.side ?? null,
-    autoAlign: true,
+    autoAlign: rest.autoAlign ?? true,
     isRoot:    rest.isRoot || false,
     color:     rest.color || '#3b82f6',
     ...(rest.pdfSource ? { pdfSource: rest.pdfSource } : {}),

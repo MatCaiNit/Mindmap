@@ -1,6 +1,6 @@
 // Frontend/src/lib/treeLayout.js
 
-const MIN_Y_SPACING = 80
+const MIN_Y_SPACING = 0
 const NODE_HEIGHT = 60
 const HORIZONTAL_GAP = 70 
 export function estimateNodeWidth(label = '') {
