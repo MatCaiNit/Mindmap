@@ -68,10 +68,10 @@ export default function EditorPage() {
         setYdoc(provider.ydoc)
         setAwareness(provider.awareness)
         // DEV ONLY — expose for latency measurement
-        if (import.meta.env.DEV) {
+  
           window.__mm = { ydoc: provider.ydoc, provider, ws: provider.wsProvider }
           console.log('%c[MEASURE] window.__mm ready', 'color:#10b981;font-weight:bold')
-        }
+        
         provider.wsProvider.on('sync', (isSynced) => setSynced(isSynced))
 
         undoManagerRef.current = createUndoManager(provider.ydoc)
