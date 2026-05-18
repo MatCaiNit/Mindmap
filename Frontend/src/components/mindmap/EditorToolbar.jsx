@@ -18,7 +18,7 @@ import { useMutation } from '@tanstack/react-query'
 import { versionService } from '../../services/versionService'
 import VersionHistoryModal from './VersionHistoryModal'
 import CollaboratorsTab from './CollaboratorsTab'
-import { exportMindmapAsJSON, downloadJSON } from '../../services/exportMindmap'
+import { exportMindmapAsJSON, downloadJSON, exportMindmapAsMarkdown, downloadMarkdown } from '../../services/exportMindmap'
 
 export default function EditorToolbar({ 
   mindmap, 
@@ -96,8 +96,8 @@ export default function EditorToolbar({
     if (!ydoc) return
     const yNodes = ydoc.getMap('nodes')
     const yEdges = ydoc.getArray('edges')
-    const data = exportMindmapAsJSON(yNodes, yEdges, mindmap.title)
-    if (data) downloadJSON(data, mindmap.title)
+    const data = exportMindmapAsMarkdown(yNodes, yEdges, mindmap.title)
+    if (data) downloadMarkdown(data, mindmap.title)
   }
 
   return (

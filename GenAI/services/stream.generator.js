@@ -497,6 +497,38 @@ function mmrSelect(chunks, k = 10) {
   return result;
 }
 
+function adaptiveSelect(rankedChunks, capChars) {
+  if (!rankedChunks.length) return []
+ 
+  const scores = rankedChunks.map(c => c._s || 0)
+  const mean   = scores.reduce((a, b) => a + b, 0) / scores.length
+  const std    = Math.sqrt(
+    scores.map(s => (s - mean) ** 2).reduce((a, b) => a + b, 0) / scores.length
+  )
+  const threshold = mean + 0.5 * std
+ 
+  // Lấy chunk trên ngưỡng, tối thiểu 2, tối đa 8
+  let candidates = rankedChunks.filter(c => (c._s || 0) >= threshold)
+  if (candidates.length < 2) candidates = rankedChunks.slice(0, 2)
+  candidates = candidates.slice(0, 8)
+ 
+  // MMR để đảm bảo đa dạng
+  const diverse = mmrSelect(candidates, candidates.length)
+ 
+  // Cắt theo ngân sách ký tự
+  const result = []
+  let usedChars = 0
+  for (const c of diverse) {
+    const len = (c.text || '').length
+    if (usedChars + len > capChars && result.length >= 2) break
+    result.push(c)
+    usedChars += len
+  }
+ 
+  console.log(`[AdaptiveK] mean=${mean.toFixed(3)} std=${std.toFixed(3)} threshold=${threshold.toFixed(3)} pool=${rankedChunks.length} → selected=${result.length}`)
+  return result
+}
+
 function buildRAGContext(chapters, allChunks) {
   const CAP_CH = 1500,
     CAP_TOT = 9000,
@@ -549,15 +581,11 @@ function buildRAGContext(chapters, allChunks) {
       _s: bm25(ch.title, c.text || ""),
     }));
     const maxScore = Math.max(...ranked.map((c) => c._s), 0);
-    const selected =
-      maxScore > 0
-        ? mmrSelect(
-          ranked.sort((a, b) => b._s - a._s),
-          5,
-        )
-        : pool.slice(0, 4);
+    const selected = maxScore > 0
+      ? adaptiveSelect(ranked.sort((a, b) => b._s - a._s), CAP_CH)  // ← adaptive
+      : pool.slice(0, 4)
     const excerpt = selected
-      .map((c) => cleanChunkText(c.text).slice(0, 350))
+      .map((c) => cleanChunkText(c.text).slice(0, 500))
       .join(" ")
       .replace(/\s+/g, " ")
       .trim()

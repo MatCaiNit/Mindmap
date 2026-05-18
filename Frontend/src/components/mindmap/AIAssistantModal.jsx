@@ -290,9 +290,6 @@ export default function AIAssistantModal({ mindmap, yNodes, yEdges, onClose }) {
                   {modeBadge.label}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Mindmap 5-6 cấp chi tiết theo chuẩn XMind
-              </p>
             </div>
           </div>
           <button
@@ -316,9 +313,9 @@ export default function AIAssistantModal({ mindmap, yNodes, yEdges, onClose }) {
 
           {/* Info về background gen */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
-            <p className="font-semibold mb-1">💡 Generation chạy nền</p>
             <p className="text-xs text-blue-600">
-              Bạn có thể đóng hộp thoại này sau khi bắt đầu — mindmap sẽ tự động cập nhật trên canvas.
+              AI có thể hỗ trợ bạn tạo mindmap từ file có sẵn hoặc câu hỏi bạn đưa ra.
+              Tuy nhiên, quá trình này có thể mất vài phút tùy vào độ dài tài liệu và độ phức tạp của câu hỏi.
               Tiến trình hiện ở góc phải màn hình.
             </p>
           </div>
